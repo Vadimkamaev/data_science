@@ -1,144 +1,183 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import LabelEncoder # перекодировка категориальных признаков
+from sklearn.metrics import accuracy_score, roc_auc_score#, precision_score, recall_score
+#from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, KFold
+from ml_sklearn import bin
 
-# def analitika_vozr_iz_imeni():
-#     vdf = df[['Name','Sex', 'Age']]
-#     vdf = vdf[vdf['Sex']=='female']
-#     maska = pd.notna(vdf['Age'])
-#     vdf = vdf[maska]
-#     maska = vdf['Name'].str.find('Mrs.') > 0
-#     mrdf = vdf[maska]
-#     notmrdf = vdf[~maska]
-#     maska = notmrdf['Name'].str.find('Miss.') > 0
-#     masterdf = notmrdf[~maska]
-#     print(masterdf.describe())
-#     print(notmrdf.head(30))
-    #Выводы для женщин
-    # для 'Mrs.' Age: mean 35, min 14, max 63
-    # для 'Miss.' Age: mean 21, min 1, max 63
-    # для не 'Mrs.' и не 'Miss.' mean 32, min 24, max 49
-    # Выводы для мужчин:
-    # для 'Master.' Age: mean 4.574167, max 12
-    # для не 'Master.' и не 'Mr.' Age: mean 45, min 23, max 70
-    # для 'Mr.' Age: mean 32, min 11, max 80
+# предобработка данных
+class Cpredobrabotka:
 
-def vozr_iz_imeni(df):
-    #data["Len_name"] = data["Name"].str.len()
-    mask_nan = pd.isna(df['Age'])
+    # создаем поле - количество чел по 1 билету
+    def bilet(self, df):
+        ser_kol_tik = df['Ticket'].value_counts()
+        x = ser_kol_tik[df['Ticket']]
+        l = x.tolist()
+        df['Koltik']= l
+        return df
 
-    maska1 = df['Name'].str.find('Mrs.') > 0
-    df.loc[maska1, 'Name'] ='Mrs'
-    df.loc[maska1 & mask_nan,'Age'] = 35
+    # делаем объединенное поле
+    def obedinit(self, data):
+        data['Embarked'] = data['Embarked'].fillna('S')
+        le = LabelEncoder() # 0.730 - 0.954
+        le.fit(data['Embarked'])
+        data['Embarked'] = le.transform(data['Embarked'])
+        return data
 
-    maska2 = df['Name'].str.find('Miss.') > 0
-    df.loc[maska2, 'Name'] = 'Miss'
-    df.loc[maska2 & mask_nan, 'Age'] = 21
+    # цыфруем кабину
+    def kabina_cif(self, data):
+        data.loc[pd.notna(data['Cabin']), 'Cabin'] = data['Cabin'].str[0]
+        data['Cabin'] = data['Cabin'].fillna('T')
+        le = LabelEncoder()
+        le.fit(data['Cabin'])
+        data['Cabin'] = le.transform(data['Cabin'])
+        #del data['Cabin']
+        return data
 
-    maska3 = df['Name'].str.find('Master.') > 0
-    df.loc[maska3, 'Name'] = 'Master'
-    df.loc[maska3 & mask_nan, 'Age'] = 5
+    def prise_bilet(self, data):
+        ser_kol_tik = data['Ticket'].value_counts()
+        x = ser_kol_tik[data['Ticket']]
+        l = x.tolist()
+        data['Koltik']= l
+        maska1 = (data['Pclass'] == 1) & (data['Fare'] > data['Koltik'] * 39.9/2)
+        data.loc[maska1, 'Fare'] = data['Fare'] / data['Koltik']
+        maska2 = (data['Pclass'] == 2) & (data['Fare'] > data['Koltik'] * 14.21/2)
+        data.loc[maska2, 'Fare'] = data['Fare'] / data['Koltik']
+        maska3 = (data['Pclass'] == 3) & (data['Fare'] > data['Koltik'] * 8.45/2)
+        data.loc[maska3, 'Fare'] = data['Fare'] / data['Koltik']
+        del data['Koltik'] #0.827141 - 0.830511
 
-    maska4 = df['Name'].str.find('Mr.') > 0
-    df.loc[maska4, 'Name'] = 'Mr'
-    df.loc[maska4 & mask_nan, 'Age'] = 45
+        # разность между ценой и средней ценой билета (вроде не волияет вообще)
+        # data.loc[data['Pclass'] == 1, 'Fare'] = data['Fare'] - 39.9  #0.8293882646691635
+        # data.loc[data['Pclass'] == 2, 'Fare'] = data['Fare'] - 14.21
+        # data.loc[data['Pclass'] == 3, 'Fare'] = data['Fare'] - 8.45
 
-    maska5 = ~maska1 & ~maska2 & ~maska3 & ~maska4
-    df.loc[maska5, 'Name'] = 'NM'
-    df.loc[maska5 & mask_nan, 'Age'] = 40
+        # то, что выше правильнее, но хуже для результата
+
+        # maska1 = (data['Pclass'] == 1) & (data['Fare'] > 1.6 * 39.9) # 0.88121
+        # data.loc[maska1, 'Fare'] = data['Fare'] / (data['SibSp'] + data['Parch'] + 1)
+        # maska2 = (data['Pclass'] == 2) & (data['Fare'] > 1.6 * 14.21)
+        # data.loc[maska2, 'Fare'] = data['Fare'] / (data['SibSp'] + data['Parch'] + 1)
+        # maska3 = (data['Pclass'] == 3) & (data['Fare'] > 1.6 * 8.45)
+        # data.loc[maska3, 'Fare'] = data['Fare'] / (data['SibSp'] + data['Parch'] + 1)
+        # ????
+        #data['Fare'] = data['Fare'] / (data['SibSp'] + data['Parch'] + 1)
+        return data
+
+    def vozrast_segment(self, data, x1, x2, x3, x4):
+        data.loc[data['Age'] <= x1, 'Age'] = 0
+        data.loc[(data['Age'] > x1) & (data['Age'] <= x2), 'Age'] = 1
+        data.loc[(data['Age'] > x2) & (data['Age'] <= x3), 'Age'] = 2
+        data.loc[(data['Age'] > x3) & (data['Age'] <= x4), 'Age'] = 3
+        data.loc[(data['Age'] > x4), 'Age'] = 4
+        return data
+
+    def vozrtast(self, data):
+        # kaggle 0.7679 № 1  .... 0.74401
+        #spis = [-1.0, 5.0, 9.0, 15.0, 31.0, 36.0, 38.0, 40.0, 44.0, 47.0, 55.0, 60.0, 80.0]#0.829388
+        # kaggle 0.7488
+        spis = [-1.0, 5.0, 13.0, 16.0, 18.0, 30.0, 35.0, 36.0, 39.0, 42.0, 45.0, 47.0, 50.0, 54.0, 60.0, 80.0]
+
+
+        data['Age'] = pd.cut(data['Age'], bins=spis, labels=False)
+
+        #data = self.vozrast_segment(data, 1, 10, 48, 60) #0.836167290886392
+
+        #data.loc[(data['Age'] < 1), 'Age'] = 1 #0.876; 0.719 - 0.958
+        return data
+
+    def vozr_iz_imeni(self, df):
+        #df["Len_name"] = df["Name"].str.len()
+        mask_nan = pd.isna(df['Age'])
+
+        maska1 = df['Name'].str.find('Mrs.') > 0
+        df.loc[maska1, 'Name'] = '4'
+        df.loc[maska1 & mask_nan,'Age'] = 35
+
+        maska2 = df['Name'].str.find('Miss.') > 0
+        df.loc[maska2, 'Name'] = '3'
+        df.loc[maska2 & mask_nan, 'Age'] = 21
+
+        maska3 = df['Name'].str.find('Master.') > 0
+        df.loc[maska3, 'Name'] = '2'
+        df.loc[maska3 & mask_nan, 'Age'] = 5
+
+        maska4 = df['Name'].str.find('Mr.') > 0
+        df.loc[maska4, 'Name'] = '0'
+        df.loc[maska4 & mask_nan, 'Age'] = 45
+
+        maska5 = ~maska1 & ~maska2 & ~maska3 & ~maska4
+
+        masmen = maska5 & (df['Sex'] == 'male')
+        df.loc[masmen, 'Name'] = '1'
+        df.loc[masmen & mask_nan, 'Age'] = 45
+        maswum = maska5 & (df['Sex'] == 'female')
+        df.loc[maswum, 'Name'] = '5'
+        df.loc[maswum & mask_nan, 'Age'] = 32  #0.8874571025115587
+        df['Name'].astype(int)
+        return df
+
+
+    # 2-я версия
+    def versia2(self, data):
+        data = self.obedinit(data)             #0.8770 - 0.87719
+        data = self.kabina_cif(data)           #0.886590068
+        data = self.prise_bilet(data) # делим цену билета на кол. чел. в семье
+
+        #data.loc[pd.notna(data['Cabin']), 'Cabin'] = data['Cabin'].str[0]
+        data = data.drop(columns=['PassengerId', 'Ticket', 'Name'])
+        data['Sex'] = data['Sex'].map({'female': 1, 'male': 0}).astype(int)
+        data = self.vozrtast(data)
+        return data
+
+    # для оптимизации
+    def opt(self, data, spis):
+        data = self.obedinit(data)             #0.8770 - 0.87719
+        data = self.kabina_cif(data)           #0.886590068
+        data = self.prise_bilet(data) # делим цену билета на кол. чел. в семье
+
+        #data.loc[pd.notna(data['Cabin']), 'Cabin'] = data['Cabin'].str[0]
+        data = data.drop(columns=['PassengerId', 'Ticket', 'Name'])
+        data['Sex'] = data['Sex'].map({'female': 1, 'male': 0}).astype(int)
+        data['Age'] = pd.cut(data['Age'], bins=spis, labels=False)
+        return data
+
+
+predobrabotka = Cpredobrabotka()
+
+
+# предобработка данных
+def predobradotka_data(data):
+    data = predobrabotka.vozr_iz_imeni(data)
+    data = predobrabotka.versia2(data)
     return data
-#    print(df[['Name','Sex', 'Age']].head(30))
+    #bin.gbdt_mod(data, y)
 
-# 1-я версия
-def versia1(data):
+if __name__ == "__main__":
+    pd.options.display.width = 0 # вывод данных во всю ширину окна
+    data = pd.read_csv("C:\\kaggle\\Титаник\\train.csv")
+    #analiz.ot_vozrasta(data)
 
-    # это не правильно
-    data = data.drop(columns=['PassengerId', 'Name', 'Ticket', 'Cabin'])
-    data.loc[data['Sex'] == 'female', 'Sex'] = 0
-    data.loc[data['Sex'] == 'male', 'Sex'] = 1
+    # y = data['Survived']
+    # data = data.drop(columns=['Survived'])
+    y = data.pop('Survived')
+    data = predobradotka_data(data) # предобработка данных
+    gbdt, m = bin.gbdt_mod(data, y)
 
-    # m = pd.get_dummies(data['Embarked'])
-    # data = data.drop(columns=['Embarked'])
-    # data.join(m)  # 0.8550448103598696, но сошлось
+    #########CV_gbdt = bin.gbdt_optimizm(data, y)
+    #считываем тестовые данные
 
-    data['Embarked'] = data['Embarked'].fillna('S')
-    le = LabelEncoder()
-    le.fit(data['Embarked'])
-    data['Embarked'] = le.transform(data['Embarked'])
-    return data
+    data_test = pd.read_csv('C:\\kaggle\\Титаник\\test.csv')
+    data_test.loc[data_test['Fare'].isnull(), 'Fare'] = 8
+    passenger_id = data_test['PassengerId'] # id пассажиров
+    data_test = predobradotka_data(data_test) # предобработка данных
+    y_pred_gbdt = gbdt.predict(data_test)
+    y_pred_gbdt = pd.DataFrame(y_pred_gbdt, columns=['Survived'])
+    y_pred_gbdt['PassengerId'] = passenger_id
+    y_pred_gbdt = y_pred_gbdt[['PassengerId', 'Survived']]
+    y_pred_gbdt.to_csv('C:\\kaggle\\Титаник\\submission_gbdt.csv', index=None)
 
-
-# 2-я версия
-def versia2(data):
-    data['Fare'] = data['Fare'] / (data['SibSp'] + data['Parch'] +1)# без этого 'Fare' 0.00437163
-    # это не правильно
-    data = data.drop(columns=['PassengerId', 'Ticket', 'Cabin'])
-    data.loc[data['Sex'] == 'female', 'Sex'] = 0
-    data.loc[data['Sex'] == 'male', 'Sex'] = 1
-
-    data.loc[data['Age'] <=7, 'Age'] = 0
-    data.loc[(data['Age'] > 7) & (data['Age'] <= 35), 'Age'] = 1
-    data.loc[(data['Age'] > 35) & (data['Age'] <= 100), 'Age'] = 2
-
-    m = pd.get_dummies(data[['Embarked', 'Name']])
-    data = data.drop(columns=['Embarked', 'Name'])
-    data = data.join(m)  #0.8754966485996073
-
-    # data = data.drop(columns=['Fare', 'Embarked_Q', 'Embarked_C']) # ОПТИМАЛЬНО ПРИ ЛИНЕЙНОЙ МОДЕЛИ
-
-    # data['Embarked'] = data['Embarked'].fillna('Ru')
-    # le = LabelEncoder()
-    # le.fit(data['Embarked'])
-    # data['Embarked'] = le.transform(data['Embarked']) #0.8571480940710041
-    return data
-
-data = pd.read_csv("C:\\kaggle титаник\\train.csv")
-y = data['Survived']
-data = data.drop(columns=['Survived'])
-data = vozr_iz_imeni(data)
-data = versia2(data)
-#обучение линейной модели
-# lr = LogisticRegression()
-#
-# lr.fit(data, y)
-# lr_preds = lr.predict(data)
-# lr_preds_proba = lr.predict_proba(data)[:, 1]
-#
-# print('accuracy', accuracy_score(y, lr_preds))
-# print('roc_auc', roc_auc_score(y, lr_preds_proba))
-#
-# cross_val_scores = cross_val_score(lr, data, y, cv=5, scoring='roc_auc')
-# pd.set_option('display.max_columns', 50)
-# print(data.head(1))
-# print(cross_val_scores)
-# print(np.mean(cross_val_scores))
-# print(lr.coef_) #0.8754966485996073
-
-gbdt = GradientBoostingClassifier()
-
-gbdt.fit(data, y)
-gbdt_preds = gbdt.predict(data)
-gbdt_preds_proba = gbdt.predict_proba(data)[:, 1]
-
-print('accuracy', accuracy_score(y, gbdt_preds))
-print('roc_auc', roc_auc_score(y, gbdt_preds_proba))
-
-cross_val_scores = cross_val_score(gbdt, data, y, cv=5, scoring='roc_auc')
-print(cross_val_scores)
-print(np.mean(cross_val_scores)) # 0.8829318016505656
-
-
-
-
-# pd.set_option('display.max_rows', 100)
-
-#
-#print(data.info())
-#
-#print(df.head(10))
