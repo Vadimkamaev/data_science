@@ -35,7 +35,7 @@ class Okno:
         l = len(self.df)
         datatypes = self.df.dtypes
         datatypes = datatypes.astype(str)
-        datatypes = datatypes[datatypes.str[0:3] =='int']
+        datatypes = datatypes[(datatypes.str[0:3] =='int') | (datatypes.str[0:3] =='Int')]
         vdf = self.df[datatypes.index]
         datamax = vdf.max()
         datamin = vdf.min()
@@ -51,7 +51,8 @@ class Okno:
         l = len(self.df)
         datatypes = self.df.dtypes
         datatypes = datatypes.astype(str)
-        datatypes = datatypes[datatypes == 'object']
+        datatypes = datatypes[(datatypes == 'object') | (datatypes == 'category')
+                              | (datatypes.str[0:3] =='str')]
         vdf = self.df[datatypes.index]
         datanunique = vdf.nunique()
         datanull = vdf.isnull().sum()
@@ -59,12 +60,12 @@ class Okno:
         print(f'Колонки типа object. Всего строк в DataFrame {l}')
         print(vdf)
 
-    # колонки целого типа
+    # колонки вещественного типа
     def printfloatcolumn(self):
         l = len(self.df)
         datatypes = self.df.dtypes
         datatypes = datatypes.astype(str)
-        datatypes = datatypes[datatypes.str[0:5] =='float']
+        datatypes = datatypes[(datatypes.str[0:5] =='float') | (datatypes.str[0:5] =='Float')]
         vdf = self.df[datatypes.index]
         datamax = vdf.max()
         datamin = vdf.min()
@@ -82,8 +83,12 @@ class Okno:
 
     # начальная инфомация на экране
     def infostart(self):
+        try:
+            sum_dup = self.df.duplicated().sum()
+        except:
+            sum_dup = 0
         Label(text=f"Размер shape = {self.df.shape}").pack()
-        Label(text=f"Дубликаты duplicated().sum() = {self.df.duplicated().sum()}").pack()
+        Label(text=f"Дубликаты duplicated().sum() = {sum_dup}").pack()
         Label(text=f"Пустоты isnull().sum().sum() = {self.df.isnull().sum().sum()}").pack()
         Label(text=f"Поле № 1. Ось x").pack()
         self.kolonka1 = Entry(width=45)
@@ -127,6 +132,38 @@ class Okno:
                 self.df.plot.scatter(x = nam1, y = nam2)
                 plt.show()
 
+    # математическая диаграмма, изображающая значения двух переменных в виде точек на плоскости
+    def scatter_plot_groupby_x(self):
+        nam1 = self.kolonka1.get()
+        if nam1 not in self.df.columns:
+            self.printcolumns()
+            print('В поле ввода "Поле № 1" введена строка не идентичная имени колонки')
+        else:
+            nam2 = self.kolonka2.get()
+            if nam2 not in self.df.columns:
+                self.printcolumns()
+                print('В поле ввода "Поле № 2" введена строка не идентичная имени колонки')
+            else:
+                df_groupby = self.df[[nam1, nam2]].groupby(nam1, as_index=False).mean()
+                df_groupby.plot.scatter(x = nam1, y = nam2)
+                plt.show()
+
+    # математическая диаграмма, изображающая значения двух переменных в виде точек на плоскости
+    def scatter_plot_groupby_y(self):
+        nam1 = self.kolonka1.get()
+        if nam1 not in self.df.columns:
+            self.printcolumns()
+            print('В поле ввода "Поле № 1" введена строка не идентичная имени колонки')
+        else:
+            nam2 = self.kolonka2.get()
+            if nam2 not in self.df.columns:
+                self.printcolumns()
+                print('В поле ввода "Поле № 2" введена строка не идентичная имени колонки')
+            else:
+                df_groupby = self.df[[nam1, nam2]].groupby(nam2, as_index=False).mean()
+                df_groupby.plot.scatter(x = nam1, y = nam2)
+                plt.show()
+
     # диаграмма, изображающая значения двух переменных в виде линии на плоскости
     def line_plot(self):
         nam1 = self.kolonka1.get()
@@ -147,6 +184,8 @@ class Okno:
         grafik_menu.add_command(label="Гистограмма поля № 1 hist", command=self.hist_ogramma)
         grafik_menu.add_command(label="Зависимость поля № 1 от индекса plot", command=self.plot_ogramma)
         grafik_menu.add_command(label="Зависимость 2-х полей. plot.skatter", command=self.scatter_plot)
+        grafik_menu.add_command(label="Зависимость 2-х полей. groupby по x", command=self.scatter_plot_groupby_x)
+        grafik_menu.add_command(label="Зависимость 2-х полей. groupby по y", command=self.scatter_plot_groupby_y)
         grafik_menu.add_command(label="Зависимость 2-х полей. plot.line", command=self.line_plot)
 
     # под меню otchet_menu
@@ -201,8 +240,10 @@ class Okno:
 okno = Okno()
 if __name__ == "__main__":
     #okno.csv("C:\\kaggle\\Титаник\\train.csv")
-    #okno.csv('C:\\Users\\vadim\\Desktop\\Downloads\\StudentsPerformance.csv')
-    #okno.csv('C:\\Users\\vadim\\Desktop\\Downloads\\accountancy.csv')
-    #okno.csv('C:\\Users\\vadim\\Desktop\\Downloads\\algae.csv')
-    #okno.csv('C:\\Users\\vadim\\Desktop\\Downloads\\dataset_209770_6 (1).txt')
-    okno.csv('C:\\Users\\vadim\\Desktop\\Downloads\\dota_hero_stats.csv')
+    #okno.csv("C:\\kaggle\\Титаник\\test.csv")
+    #okno.csv("C:\\kaggle\\белки\\test1.csv")
+    #okno.csv("C:\\kaggle\\белки\\train_updates_20220929.csv")
+    #okno.csv("C:\\kaggle\\белки\\supertext.csv")
+    okno.csv("C:\\kaggle\\МикроБизнес\\subideal.csv")
+
+

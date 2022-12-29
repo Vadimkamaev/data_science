@@ -21,7 +21,7 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingClassifier
 from sklearn.metrics import mean_squared_error, accuracy_score, roc_auc_score
 
 # sklearn.linear_model - линейные модели; LogisticRegression - логистическая регрессия
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
 
 # решающее дерево Decision Tree
 from sklearn import tree
