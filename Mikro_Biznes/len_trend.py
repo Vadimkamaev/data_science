@@ -84,7 +84,7 @@ def len_trend_do_month(train, n): # n - номер месяца, который 
     err_0 = 0
     pravilno_prodolshit = 0
     kol_prodolshit = 0
-    unic_cfips = train['cfips'].unique()
+    unic_cfips = train['cfips'].unique() # уникальные 'cfips'
     df_unic_cfips = pd.DataFrame({'l_mean':0, 'oll_l_mean':0, 'l_finish':0}, index=unic_cfips)
     for cfips in unic_cfips:
         loc_train = train[train['cfips'] == cfips]
@@ -95,9 +95,18 @@ def len_trend_do_month(train, n): # n - номер месяца, который 
         # if l_finish == l_mean: # -2 - 28./-7.4 - 24; -3 - 29/0.97
             # тренд согласно предсказанию должен развернутся. Не работает. Вероятность сохранения тренда выше
             # всегда
-        #if (l_finish - oll_l_mean > -1) & (l_finish - oll_l_mean < 1): # 0.74
+        #if (l_finish - oll_l_mean > -2) & (l_finish - oll_l_mean < -1): # предсказание тренда = 10.526547721982007
+        #if (l_finish - oll_l_mean > -1) & (l_finish - oll_l_mean < 0): # предсказание тренда = 2.2313276867668477
+        #if (l_finish - oll_l_mean > -0.5) & (l_finish - oll_l_mean < 0): # предсказание тренда = -1.340064827982814
         #if (l_finish - oll_l_mean > 0) & (l_finish - oll_l_mean < 1): # предсказание тренда = -1.8235890328796218
-        if (l_finish - oll_l_mean > -0.5) & (l_finish - oll_l_mean < 1): #предсказание тренда = -1.8188457376270748
+        #if (l_finish - oll_l_mean > 1) & (l_finish - oll_l_mean < 2): #предсказание тренда = 3.154892976211697
+        # if (l_finish - oll_l_mean > 2) & (l_finish - oll_l_mean < 3): # предсказание тренда = 7.503161243180382
+        #if (l_finish - oll_l_mean > 3) & (l_finish - oll_l_mean < 4): # предсказание тренда = 9.415433255674904
+        #if (l_finish - oll_l_mean > 4) & (l_finish - oll_l_mean < 5): # предсказание тренда = 5.29162740999027
+        #if (l_finish - oll_l_mean > 5) & (l_finish - oll_l_mean < 6):  # предсказание тренда = 10.984623705708012
+        #if (l_finish - oll_l_mean > 6) & (l_finish - oll_l_mean < 7):  #предсказание тренда = 43.744571912896696
+        #if (l_finish - oll_l_mean > 7) & (l_finish - oll_l_mean < 8):  # предсказание тренда = 43.66642616642617
+        if (l_finish - oll_l_mean > 8):  # предсказание тренда = 21.42414307879204
             # +2 rez = 15.52; +3  rez = 14.55
             # +1 rez = 11.95; 0 rez = 5.32; -1 rez = 3.39; -2 rez = 3.29; -3 rez = 3.48; -5 rez = 3.63
             # 5 - 12.; 2 - 14./18/14; 1 - 16./16; 0 - 15/14/6; +1 - 14/17/8; +2 - 13/26; +3 - 29/21;
@@ -122,11 +131,19 @@ def len_trend_do_month(train, n): # n - номер месяца, который 
         k = 0.003
         if l_finish - oll_l_mean + 2 < 0:
             trend = 1+k
-        elif l_finish - oll_l_mean + 0 > 0: # на 6.36015339435653
-        #elif l_finish - oll_l_mean + 1 > 0: # лучшее было это. Ошибка предсказания < ошибки модели на 8.403000117876218
+        elif (l_finish - oll_l_mean + 2 >= 0) and (l_finish - oll_l_mean + 1 <= 0):
+            trend = 1 + k / (l_finish - oll_l_mean + 3) ** 2 # модели = на 23.263637655428283
+            #trend = 1 + k / (l_finish - oll_l_mean + 3)  # на 21.543403132159256
+        # elif (l_finish - oll_l_mean + 1 > 0) & (l_finish - oll_l_mean + 0 < 0): # модели = на 9.210186367321512
+        elif (l_finish - oll_l_mean + 1 > 0) & (l_finish - oll_l_mean - 1 < 0): # модели = на 23.263637655428283
+        #elif (l_finish - oll_l_mean + 0.5 > 0) & (l_finish - oll_l_mean - 1 < 0): # модели = на 18.36943863297256
+        #elif (l_finish - oll_l_mean + 0.75 > 0) & (l_finish - oll_l_mean - 1 < 0): # модели = на 18.514085257151237
+        #elif (l_finish - oll_l_mean > 0) & (l_finish - oll_l_mean - 1 < 0):
             trend = 1
+        elif (l_finish - oll_l_mean - 1 >= 0) & (l_finish - oll_l_mean - 2 <= 0):
+            trend = 1 + k * (l_finish - oll_l_mean - 1)
         else:
-            trend = 1 + k / (l_finish - oll_l_mean + 3)**2
+            trend = 1 + k # модели = на 23.263637655428283
         # print('l_finish=',l_finish,'oll_l_mean=',oll_l_mean)
         # print('trend=',trend)
         if tip_fin_trend == '-':
@@ -144,19 +161,20 @@ def len_trend_do_month(train, n): # n - номер месяца, который 
     print('err_preds =', err_preds, 'err_0 =', err_0)
     return rez, err_0, err_preds
 
-def optim(train):
+# оптимизация. делаем предсказание всех данных от min_m до max_m месяца и считаем ошибки
+def optim(train, min_m = 15, max_m = 39):
     sum = 0
     sum_err0 = 0
     sum_errpreds = 0
-    i = 15
-    while i < 39:
+    i = min_m # номер месяца с которого начинаем предсказания
+    while i < max_m: # цикл по месяцам
         rez, err_0, err_preds = len_trend_do_month(train, i)
         sum += rez
         sum_err0 += err_0
         sum_errpreds += err_preds
         print('sum_err0=',sum_err0,'sum_errpreds=',sum_errpreds)
         i +=1
-    rez = sum / (39-15)
+    rez = sum / (max_m-min_m)
     best =  sum_err0 - sum_errpreds
     proc = best / sum_err0
     print('предсказание тренда =', rez, )
