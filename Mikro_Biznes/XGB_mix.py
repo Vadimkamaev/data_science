@@ -8,13 +8,14 @@ from tqdm import tqdm # прогресс бар
 
 from servise_ds import okno
 import obrabotka_filtr
-
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 not_blec = 1 # 1 - без блек листа
 if not_blec == 1:
     blacklistcfips =pd.DataFrame(columns=[['cfips','miss']])
-    #без блек листов XGB. 1.0813450261766775/ количство cfips предсказанных хуже чем моделью = 1232
+    # без блек листов XGB. Ошибка SMAPE: 1.0805449694484606, хуже чем моделью = 1195
+
 else:
-    # БЛЕК ЛИСТ СОХРАНЯЮЩИЙСЯ В ФАЙЛЕ 1.0692455614504854
+    # БЛЕК ЛИСТ СОХРАНЯЮЩИЙСЯ В ФАЙЛЕ 1.0692455614504854 // 1.0871 на сайте
     # список 'cfips' у которых ошибка модели больше чем ошибка модели '='
     blacklistcfips = pd.read_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv")
 
@@ -93,21 +94,12 @@ def del_outliers(raw):
         # цикл назад от предпоследнего до 2-го элемента
         for i in range(37, 2, -1):
             # среднее значение microbusiness_density с 0-го по i-й элемент * 0.2
-            #thr = 0.15 * np.mean(var[:i]) # XGB. Ошибка SMAPE: 1.1366349123015205
-            thr = 0.10 * np.mean(var[:i]) # 1.0863 - 22 место
-            #thr = 0.05 * np.mean(var[:i]) # 1.0865
-            # difa = abs(var[i] - var[i - 1])
-            # if (difa >= thr):  # если microbusiness_density изменился больше чем на 20%
-            #     #var[:i] *= (var[i] / var[i - 1])  # меняем все значения до i-го
-            #     var[:i] += (var[i] / var[i - 1])  # меняем все значения до i-го
-            #     outliers.append(o)  # добавляем cfips в список выбросов
-            #     cnt += 1  # счетчик выбросов
-            # else:
+            thr = 0.10 * np.mean(var[:i]) # XGB. Ошибка SMAPE: 1.0802560258625178
             # разность i-го и i-1-го значения microbusiness_density
             difa = var[i] - var[i - 1] #XGB. Ошибка SMAPE: 1.161117561342498
             if (difa >= thr) or (difa <= -thr):  # если microbusiness_density изменился больше чем на 20%
                 if difa > 0:
-                    var[:i] += difa - 0.0045 # 0.0045 лучше чем 0.003 и чем 0.006
+                    var[:i] += difa - 0.0045 # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
                 else:
                     var[:i] += difa + 0.0043 # 0.0043 лучше чем 0.003 и чем 0.006
                 # Предсказано XGB.Ошибка SMAPE: 0.9178165883836801
@@ -176,25 +168,31 @@ def build_features(raw, target='target', target_act='active', lags=4):
     #создаем значения сумм окон для lag = 1
     for window in [2, 4, 6]: # пока оптимально
         # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
-        # размером [2, 4, 6]
+        # размером [2, 4, 6, 8, 10]
         raw[f'mbd_rollmea{window}_{lag}'] = raw.groupby('cfips')[f'mbd_lag_{lag}'].transform(
             lambda s: s.rolling(window, min_periods=1).sum())
         # raw[f'mbd_rollmea{window}_{lag}'] = raw[f'mbd_lag_{lag}'] - raw[f'mbd_rollmea{window}_{lag}']
         feats.append(f'mbd_rollmea{window}_{lag}')
 
-    # создаем скользящие средние для lag = 1 без них Ошибка SMAPE: 1.0813450261766775
     # for ss in [4,6,8]:
     #     raw, name = weighted_moving_average(raw, 'mbd_lag_1', ss)
     #     feats.append(name)
-
-    features = ['state_i']  # номера штатов
+    # raw['proc_covill_state'] = 0
+    # raw['proc_covill_us'] = 0
+    # for mes in range(0, 47):  # цикл по месяцам
+    #     raw.loc[raw['dcount']==mes, 'proc_covill_us']=raw.loc[raw['dcount']==mes]['proc_covill'].mean()
+    #     for state_i in raw.state_i.unique():
+    #         maska = (raw['dcount']==mes)&(raw['state_i']==state_i)
+    #         raw.loc[maska, 'proc_covill_state_i'] =raw[maska]['proc_covill'].mean()
+    features = ['state_i']
     # Проверенно бесполезные колонки "month",
     features += feats  # список имен лагов и сумм окон
-    features += ['pct_college', 'median_hh_inc'] #XGB. Ошибка SMAPE: 1.0813450261766775
+    features += ['proc_covill', 'Population', 'pct_college', 'median_hh_inc'] #XGB. Ошибка SMAPE: 1.0802560258625178, уже чем моделью = 1192
+    #features += ['sp500'] #
+
     print(features)
     return raw, features
 # бесполезны - 'pct_bb', 'pct_foreign_born', 'pct_it_workers'
-# ['pct_bb', 'pct_college', 'pct_foreign_born', 'pct_it_workers', 'median_hh_inc']
 # XGB. Ошибка SMAPE: 1.0813450261766775/ количство cfips предсказанных хуже чем моделью = 1232
 
 
@@ -246,9 +244,10 @@ def blacklist(df):
         pass
         for index, row in blacklistcfips.iterrows():
             cfips = row['cfips']
-            # XGB. Ошибка SMAPE: 1.0692455614504854 / 1.0871
+            # XGB. Ошибка SMAPE: 1.0692455614504854 / 1.0871 - при сверке на сайте
             if (row['miss'] > 0.5) | (row['hit'] < 0):
                 df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
+
             # XGB.Ошибка SMAPE: 1.072776015639455 / 1.088
             # if (row['miss'] > 0.5):
             #       df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
@@ -262,7 +261,7 @@ def blacklist(df):
 
     return df
 
-# Валидация
+# Не валидация. Заменяем часть предсказаний модели на предсказание модели '='
 def valid_rez(raw, TS, ACT_THR, ABS_THR):
     # Валидация
     # создаем словари 'microbusiness_density' и 'k'
@@ -295,9 +294,7 @@ def valid_rez(raw, TS, ACT_THR, ABS_THR):
     print()
     return raw
 
-def model(raw):
-    ACT_THR = 1.8  # условие попадания в обучающую выборку raw.lastactive>ACT_THR
-    ABS_THR = 1.00  # условие попадания в обучающую выборку raw.lasttarget>ABS_THR
+def model(raw, ACT_THR, ABS_THR, kol_mes):
     raw['ypred_last'] = np.nan
     raw['ypred'] = np.nan
     raw['k'] = 1.
@@ -351,9 +348,7 @@ def kol_error(raw):
     #     blacklistcfips.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
     #     pass
 
-def rezultat(raw):
-    ACT_THR = 1.8  # условие попадания в обучающую выборку raw.lastactive>ACT_THR
-    ABS_THR = 1.00  # условие попадания в обучающую выборку raw.lasttarget>ABS_THR
+def rezultat(raw, ACT_THR, ABS_THR, kol_mes):
     best_rounds = 794
     TS = 38
     print(TS)
@@ -436,37 +431,32 @@ def rezultat(raw):
     test[['row_id', 'microbusiness_density']].to_csv('C:\\kaggle\\МикроБизнес\\dlia_sverki.csv', index=False)
 
 
+#ACT_THR = 1.8  # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
+# ABS_THR = 1  # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
+ABS_THR = 0 # XGB. Ошибка SMAPE: 1.0696013545952172, хуже чем моделью = 1108
+ACT_THR = 54 # XGB. Ошибка SMAPE: 1.0696013545952172, хуже чем моделью = 1108
+# ACT_THR = 100 # XGB. Ошибка SMAPE: 1.0713126984505543
+#ACT_THR = 250 # XGB. Ошибка SMAPE: 1.0841285464311818, хуже чем моделью = 630
+
+kol_mes = 22 # количество месяцев используемых для обучения модели
+
 # train, test, census = start() # загрузка файлов
 # raw = maceraw(train, test) # объединенный массив трейна и теста, создание объединенного raw
 # raw = censusdef(census, raw) # объудинение census и raw
 # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw0.csv", index = False)
-# raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-# raw = chang_target(raw) # изменение цели
-# raw = mace_fold(raw) # создаем новые столбцы 'lastactive' и 'lasttarget'
-# raw.to_csv("C:\\kaggle\\МикроБизнес\\raw1.csv", index = False)
-raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw1.csv")
+raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw0_cov_econ.csv")
+raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
+raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
+raw = chang_target(raw) # изменение цели
+raw = mace_fold(raw) # создаем новые столбцы 'lastactive' и 'lasttarget'
+raw.to_csv("C:\\kaggle\\МикроБизнес\\raw1.csv", index = False)
+
+# raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw1.csv")
+raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
+
 raw, features = build_features(raw, 'target', 'active', lags = 4) # создаем лаги и суммы в окнах
-model(raw)
-kol_error(raw)
-rezultat(raw)
+model(raw, ACT_THR, ABS_THR, kol_mes)
+kol_error(raw) # анализ ошибок собранных по всем моделям
+rezultat(raw, ACT_THR, ABS_THR, kol_mes)
 
-
-# maincfips = blacklistcfips[blacklistcfips['main']]['cfips']
-# raw_good = raw[raw['cfips'].isin(maincfips)].copy()
-# model(raw_good)
-# kol_error(raw_good)
-#
-# mikscfips = blacklistcfips[blacklistcfips['miks']]['cfips']
-# raw_miks = raw[raw['cfips'].isin(mikscfips)].copy()
-# model(raw_miks)
-# kol_error(raw_miks)
-
-# lastcfips = blacklistcfips[blacklistcfips['last']]['cfips']
-# raw_last = raw[raw['cfips'].isin(lastcfips)].copy()
-# model(raw_last)
-# kol_error(raw_last)
-
-# new_raw = pd.concat([maincfips, mikscfips])
-# kol_error(new_raw)
-
-
+# XGB. Ошибка SMAPE: 1.0805449694484606

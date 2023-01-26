@@ -13,8 +13,6 @@ def sverka():
 sverka()
 
 
-
-
 def melk1():
     rez = pd.read_csv("C:\\kaggle\\Гравитация\\sub3.csv")
     # rez.sort_values(by='tm', inplace=True)

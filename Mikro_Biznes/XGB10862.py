@@ -236,7 +236,7 @@ def build_features(raw, target='target', target_act='active', lags=4):
         feats.append(f'act_lag_{lag}')
     lag = 1
     # создаем значения сумм окон для lag = 1
-    for window in [2, 4, 6]: # пока оптимально
+    for window in [2, 4, 6, 8, 10]: # XGB. Ошибка SMAPE: 1.0786478967227329
         # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
         # размером [2, 4, 6]
         raw[f'mbd_rollmea{window}_{lag}'] = raw.groupby('cfips')[f'mbd_lag_{lag}'].transform(
@@ -246,10 +246,10 @@ def build_features(raw, target='target', target_act='active', lags=4):
     features = ['state_i']  # номера штатов
     # Проверенно бесполезные колонки "month",
     features += feats  # список имен лагов и сумм окон
+    # без этого Ошибка SMAPE: 1.079043460453389, хуже чем моделью = 24
     print(features)
     return raw, features
-# XGB. Ошибка SMAPE: 1.081595480367891/ количство cfips предсказанных хуже чем моделью = 1245
-# c 'microbusiness_density' и 'active' XGB. Ошибка SMAPE: 1.081203276846456 / хуже чем моделью = 1250
+
 
 # создание модели градиентного бустинга
 def model_XGBRegressor():
@@ -334,11 +334,20 @@ def valid_rez(raw, TS, ACT_THR, ABS_THR, blacklist, blacklistcfips):
 
 def model(raw):
     global blacklist, blacklistcfips
-    ACT_THR = 1.8  # условие попадания в обучающую выборку raw.lastactive>ACT_THR
-    ABS_THR = 1.00  # условие попадания в обучающую выборку raw.lasttarget>ABS_THR
+    ACT_THR = 5 # 1.0773034636263392
+    ABS_THR = 0.7 # 1.0773034636263392
+    # для теста на сайте лучше старые значения
+    # ACT_THR = 1.8  # условие попадания в обучающую выборку raw.lastactive>ACT_THR
+    # ABS_THR = 1
+    ABS_THR = 100.00  # результат на сайте 1.0862 мало меняется при ABS_THR от 5 до 100
     raw['ypred_last'] = np.nan
     raw['ypred'] = np.nan
     raw['k'] = 1.
+    df = raw[(raw.istest == 0) &  (raw.dcount >= 1)]
+    df1 = df[df['cfips'].isin(blacklistcfips)]
+    df4 = df[df['state'].isin(blacklist)]
+    df2 = df[(raw.lastactive <= ACT_THR)]
+    df3 = df[(raw.lasttarget <= ABS_THR)]
     BEST_ROUNDS = []  # лучшие раунды
     # TS - номер месяца валидацииции. Месяцы то TS это трайн.
     for TS in range(29, 38):
@@ -465,11 +474,15 @@ def rezultat(raw):
     test[['row_id', 'microbusiness_density']].to_csv('C:\\kaggle\\МикроБизнес\\sub_xgb.csv', index=False)
 
 
-train, test, census = start() # загрузка файлов
-raw = maceraw(train, test) # объединенный массив трейна и теста, создание объединенного raw
-raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-raw = chang_target(raw) # изменение цели
-raw = mace_fold(raw) # создаем новые столбцы 'lastactive' и 'lasttarget'
+# train, test, census = start() # загрузка файлов
+# raw = maceraw(train, test) # объединенный массив трейна и теста, создание объединенного raw
+# raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
+# raw = chang_target(raw) # изменение цели
+# raw = mace_fold(raw) # создаем новые столбцы 'lastactive' и 'lasttarget'
+
+raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw1_covid.csv")
+# XGB. Ошибка SMAPE: 1.079043460453389, хуже чем моделью = 24
+
 raw, features = build_features(raw, 'target', 'active', lags = 4) # создаем лаги и суммы в окнах
 model(raw)
 kol_error(raw)
