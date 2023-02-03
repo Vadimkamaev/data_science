@@ -147,51 +147,30 @@ def validacia(raw, start_val, stop_val, rezult, blac_cfips, max_cfips, lastactiv
     mbd_lag1 = raw.loc[maska, 'mbd_lag1']
     err_last = smape(target, mbd_lag1)
     print('Равенство последнему значению. Ошибка SMAPE:', err_last)
-    df_state = pd.DataFrame({'state':0,'err_mod':0,'err_last':0,'diff_err':0,'lastactive':0}, index=[0])
-    for state in raw.state.unique():
-        maska2 = (raw['state']== state) & maska
-        target_m = raw.loc[maska2, 'microbusiness_density']
-        ypred_m = raw.loc[maska2, 'ypred']
-        err_mod1 = smape(target_m, ypred_m)
-        mbd_lag11 = raw.loc[maska2, 'mbd_lag1']
-        err_last1 = smape(target_m, mbd_lag11)
-        st_l_active = raw[maska2]['lastactive'].mean()
-        df_state.loc[len(df_state.index)]=(state, err_mod1, err_last1, err_last1-err_mod1, st_l_active)
-    df_state.sort_values(by='diff_err', inplace=True)
-    print(df_state.head(53))
+    # df_state = pd.DataFrame({'state':0,'err_mod':0,'err_last':0,'diff_err':0,'lastactive':0}, index=[0])
+    # for state in raw.state.unique():
+    #     maska2 = (raw['state']== state) & maska
+    #     target_m = raw.loc[maska2, 'microbusiness_density']
+    #     ypred_m = raw.loc[maska2, 'ypred']
+    #     err_mod1 = smape(target_m, ypred_m)
+    #     mbd_lag11 = raw.loc[maska2, 'mbd_lag1']
+    #     err_last1 = smape(target_m, mbd_lag11)
+    #     st_l_active = raw[maska2]['lastactive'].mean()
+    #     df_state.loc[len(df_state.index)]=(state, err_mod1, err_last1, err_last1-err_mod1, st_l_active)
+    # df_state.sort_values(by='diff_err', inplace=True)
+    # print(df_state.head(53))
     dif_err = err_last - err_mod # положительная - хорошо
     rezult.loc[len(rezult.index)] = [lastactive, param, err_mod, dif_err]
     return rezult
 
-def vsia_model(raw, mes_1, mes_val, train_col, znachenie, param_mod = 1):
+def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, param=1):
     # получение трайна и 'y' (игрик) для модели
+    #df = raw[(raw['lastactive']>lastactive)]
     X_train, y_train = train_and_y(raw, mes_1, mes_val, train_col)
-    # получение х_тест и y_тест
-    X_test, y_test = x_and_y_test(raw, mes_val, train_col)
-    # Создаем модель
-    rf = RandomForestRegressor(n_estimators=100, min_samples_split=250, n_jobs=2, random_state=322)
-    # лучшее n_estimators=900 лучше чем 500, лучше чем 100,  разница ошибки между 900 и 100 - 0.5%
-    # 100 деревьев в 5 раз быстрее 900 деревьев
-    rf.fit(X_train, y_train)
-    # Предсказываем
-    y_pred = rf.predict(X_test)
-    # сохраняем результат обработки одного цикла
-    raw = sbor_rezult(raw, y_pred, y_test, mes_val)
-    # прибавляем значимость столбцов новой модели к значениям предыдущих
-    znachenie['importance'] = znachenie['importance'] + rf.feature_importances_.ravel()
-    return raw, znachenie
-
-def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, lastactive, blac_cfips, param=1):
-    # получение трайна и 'y' (игрик) для модели
-    df = raw[(raw['lastactive']>lastactive) & (~raw['cfips'].isin(blac_cfips))]
-    X_train, y_train = train_and_y(df, mes_1, mes_val, train_col)
     #okno.vewdf(X_train)
     # получение х_тест и y_тест
     X_test, y_test = x_and_y_test(raw, mes_val, train_col)
     # Создаем модель
-    #model = RandomForestRegressor(n_estimators=100, min_samples_split=50, n_jobs=2, random_state=322) #error 7.977319
-    # лучшее n_estimators=900 лучше чем 500, лучше чем 100,  разница ошибки между 900 и 100 - 0.5%
-    # 100 деревьев в 5 раз быстрее 900 деревьев
 
     model = xgb.XGBRegressor(
         tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
@@ -203,7 +182,6 @@ def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, lastactive, blac_cfip
         #max_bin=4096, #Увеличение повышает оптимальность за счет увеличения времени вычислений.
         n_jobs=2,
     )
-
     model.fit(X_train, y_train)
     # Предсказываем
     y_pred = model.predict(X_test)
@@ -286,9 +264,7 @@ def new_cfips(raw, lastactive, max_cfips):
         raw = pd.concat([raw,dfnew], ignore_index=True)
     return raw
 
-
-
-def posle_sglashivfnia(raw, rezult, lastactive = 40, max_cfips=100000):
+def posle_sglashivfnia(raw, rezult, lastactive = 40):
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     blac_cfips = []
     max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
@@ -304,14 +280,13 @@ def posle_sglashivfnia(raw, rezult, lastactive = 40, max_cfips=100000):
     stop_val = 38  # последний месяц валидации до которого проверяем модель
 
     # цикл по оптимизируемому параметру модели
-    for param in tqdm(range(16,20,20)): #следующая оптимизация от 8 до 11
-        # for lastactive in range(0,201,20):
+    for param in range(1,2,20): # 1.5717414657304203
         # c start_val начинаeтся цикл по перебору номера валидационного месяца до stop_val включительно
         start_time = datetime.now()  # время начала работы модели
         for mes_val in tqdm(range(start_val, stop_val + 1)):  # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
             # здесь должен начинаться цикл по перебору номера первого месяца для трайна
             mes_1 = 4 # error 1.598877, dif_err -0.287906, длинная модель
-            raw, znachenie = vsia_model1(raw, mes_1, mes_val, train_col, znachenie, lastactive, blac_cfips, param)
+            raw, znachenie = vsia_model1(raw, mes_1, mes_val, train_col, znachenie, param)
             blac_cfips = mace_blac_list(raw, mes_1, mes_val, blac_cfips)
         print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
         # валидация по результату обработки всех месяцев валидации в цикле
@@ -339,13 +314,12 @@ def glavnaia(raw, rezult):
 
     raw = del_outliers(raw, l_vibr=0.018, verh=0.0144, niz=0.0046)  # сглаживание, убираем выбросы
     #for lastactive in range(195, 216, 5):
-    lastactive = 40# оптимально 205
-       # raw = raw[raw['cfips'] <= max_cfips]
+    # raw = raw[raw['cfips'] <= max_cfips]
     raw = new_cfips(raw, 10, max_cfips)
         # здесь должен начинаться цикл по оптимизации сглаживания
         #for vibr in range(18,19): # при 10 - error - 1.801009
 
-    posle_sglashivfnia(raw, rezult, lastactive, max_cfips)
+    posle_sglashivfnia(raw, rezult, lastactive=10)
 
 def vsia_model_otdelno(raw, mes_1, mes_val, train_col, znachenie, cfips):
     # получение трайна и 'y' (игрик) для модели

@@ -428,24 +428,19 @@ def posle_sglashivfnia(raw, rezult):
 # определяем ошибку модели для сегмента cfips с lastactive в интервале от mini до maxi
 # при параметрах min_type=0, min_blac=-1, max_blac=0 определяющих блек лист
 def serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0):
-    raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     # создаем блек-лист cfips которых не используем в тесте
     maska = (raw['lastactive'] < mini)
     if maxi > 1:
         maska = maska|(raw['lastactive'] >= maxi)
     blac_test_cfips = raw.loc[maska, 'cfips']
     blac_test_cfips = blac_test_cfips.unique()
-
-    max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
-    raw = raw[raw['cfips'] <= max_cfips]
-
     # создаем блек-лист cfips который не нужен в трайне
     maska = (raw['lastactive'] <= min_blac)
     if max_blac > 1:
         maska = (raw['lastactive'] > max_blac) | maska
     blac_cfips = raw.loc[maska, 'cfips']  #
     blac_cfips = blac_cfips.unique()
-
+    max_cfips = raw['cfips'].max()
     # создаем гибриды из cfips меньше 29 (оптимально) для трайна
     if min_type > 0.5: # если min_type = 1 создаем гибриды, если = 0 то удаляем из трайна
         raw = new_cfips(raw, min_blac, max_cfips)
@@ -458,7 +453,7 @@ def serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0):
     train_col += ['state_i', 'proc_covill', 'pct_college', 'median_hh_inc', 'sp500', 'month']
 
     # возможные поля 'Population', 'proc_covdeat', 'pct_bb', 'pct_foreign_born', 'pct_it_workers', 'unemploy'
-    start_val = 30  # первый месяц валидации с которого проверяем модель
+    start_val = 38#30  # первый месяц валидации с которого проверяем модель
     stop_val = 38  # последний месяц валидации до которого проверяем модель
     # запускаем модель по всем месяцам
     raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
@@ -469,65 +464,68 @@ def serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0):
     return error, rezult
 
 
-# оптимизируем сегмент cfips с lastactive в интервале от mini до maxi
-# составляем список из 5 лучших возможных lastactive
+# оптимизируем сегмент cfips в интервале от mini до maxi
+# составляем список из 5 лучших возможных max_active - в трайне cfips с lastactive < max_active
 def serch_max_active(raw, mini, maxi, rezult):
+    max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
     # задаем начальный шаг поиска оптимальной верхней границы lastactive
     # до которой мы используем cfips в трайне
-    if maxi < 200:
-        shag = 400
-        potolok = 6000
-    elif maxi < 500:
-        shag = 1000
-        potolok = 16000
-    elif maxi < 1500:
-        shag = 1600
-        potolok = 30000
-    else:
-        shag = 5000
-        potolok = 100000
-    max_active = maxi*5 # начальное значение с которого начинаем поиск
+    #shag = maxi + 300
+    potolok = maxi*20 +20000
+    max_active = maxi*10 # начальное значение с которого начинаем поиск
     # определяем ошибку модели
     error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0)
     # создаем датафрейм для хранения лучших результатов
     dfmax_active = pd.DataFrame({'max_active':[max_active], 'error':[error]})
     # первичный проход с поиском лучших результатов - минимальных ошибок
     while max_active < potolok:
-        max_active += shag
+        max_active = round(max_active *1.1)
+        raw = raw[raw['cfips'] <= max_cfips]
         # определяем ошибку модели
-        error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0)
-        dfmax_active[len(dfmax_active.index)]=[max_active,error]
+        error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=max_active)
+        dfmax_active.loc[len(dfmax_active.index)]=[max_active,error]
 
     # rezult.to_csv("C:\\kaggle\\МикроБизнес\\rez_optim1.csv", index=False)
-    print('Сортировка по dif_no_blac')
     rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
-    print(rezult.head(22))
-
-    mini_shag = shag//2 # уменьшаем шаг поиска в 2 раза
-    min_gran = max(shag//100, 1) # нижняя граница шага
-    ispolzovano  = set() # множество проверенных значений max_active
-    # цикл с уменьшением шага
-    while mini_shag > min_gran:
+    print(rezult.head(50))
+    del_shag = 2 # делитель шага; во сколько раз уменьшается шаг на каждом следующем уровне
+    # множество в котором количество строк в raw соответствующее проверенным значений max_active
+    ispolzovano  = set()
+    while del_shag < 100:  # цикл с уменьшением шага
         dfmax_active.sort_values(by='error', inplace=True, ignore_index=True)
         dfmax_active = dfmax_active.loc[0:4] # оставляем 5 лучших вариантов
         for ind in range(5): # проверяем значения близкие к лучшим
-            row = dfmax_active.loc[ind]
-            max_active = row['max_active'] + mini_shag # проверяем лучшее значение + пол шага
-            if not (max_active in ispolzovano): # если такого значения max_active еще не было
-                ispolzovano.add(max_active)
-                # определяем ошибку модели
-                error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0)
-                dfmax_active[len(dfmax_active.index)] = [max_active, error]
-            max_active = row['max_active'] - mini_shag # проверяем лучшее значение - пол шага
-            if not (max_active in ispolzovano): # если такого значения max_active еще не было
-                ispolzovano.add(max_active)
-                # определяем ошибку модели
-                error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=0)
-                dfmax_active[len(dfmax_active.index)] = [max_active, error]
-        mini_shag = mini_shag // 2
+            row = dfmax_active.loc[ind] # строка датафрейма
+            mini_shag = round(row['max_active'] * 0.1 / del_shag)
+            if mini_shag >= 1: # Проверить коэффициент
+                max_active = row['max_active'] + mini_shag # проверяем лучшее значение + пол шага
+                cfips_in = (raw['lastactive'] > max_active).sum()
+                if not (cfips_in in ispolzovano): # если такого значения max_active еще не было
+                    ispolzovano.add(cfips_in)
+                    raw = raw[raw['cfips'] <= max_cfips]
+                    # определяем ошибку модели
+                    error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=max_active)
+                    dfmax_active.loc[len(dfmax_active.index)] = [max_active, error]
+                max_active = row['max_active'] - mini_shag # проверяем лучшее значение - пол шага
+                cfips_in = (raw['lastactive'] > max_active).sum()
+                if not (cfips_in in ispolzovano): # если такого значения max_active еще не было
+                    ispolzovano.add(cfips_in)
+                    raw = raw[raw['cfips'] <= max_cfips]
+                    # определяем ошибку модели
+                    error, rezult = serch_error(raw, rezult, mini, maxi, min_type=0, min_blac=-1, max_blac=max_active)
+                    dfmax_active.loc[len(dfmax_active.index)] = [max_active, error]
+        del_shag = del_shag * 2
+    rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
+    print(rezult.head(50))
     dfmax_active.sort_values(by='error', inplace=True, ignore_index=True)
     dfmax_active = dfmax_active.loc[0:4] # оставляем 5 лучших вариантов
+    print('Сортировка по dif_no_blac')
+    rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
+    print(rezult.head(50))
     return dfmax_active, rezult # возвращаем 5 лучших вариантов
+
+def serch_min_active(raw, max_active, mini, maxi, rezult):
+    pass
 
 # оптимизируем один сегмент cfips с lastactive в интервале от mini до maxi
 def optimizacia_segmenta(raw, mini, maxi, rezult):
@@ -539,7 +537,6 @@ def optimizacia_segmenta(raw, mini, maxi, rezult):
     df_active['min_type'] = 0
     for ind, row in df_active.iterrows():
         df_active, rezult = serch_min_active(raw, row['max_active'], mini, maxi, rezult)
-
     df_active.sort_values(by='error', inplace=True, ignore_index=True)
     max_active = df_active.loc[0,'max_active']
     min_active = df_active.loc[0, 'min_active']
@@ -564,6 +561,7 @@ def print_sedmenti(sedmenti):
 # оптимизируем все сегменты определенной версии в датафрейме sedmenti
 def optimizacia_segmentacii(raw, rezult):
     versia = 1
+    raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\sedmenti.csv")
     df = sedmenti[(sedmenti['versia'] == versia)&(sedmenti['optim'] == 0)]
     for ind, row in df.iterrows():

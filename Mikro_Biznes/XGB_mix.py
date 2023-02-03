@@ -1,23 +1,7 @@
-import numpy as np, pandas as pd
-
-import gc # сборщик мусора
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 from tqdm import tqdm # прогресс бар
-
-from servise_ds import okno
-import obrabotka_filtr
-# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
-not_blec = 1 # 1 - без блек листа
-if not_blec == 1:
-    blacklistcfips =pd.DataFrame(columns=[['cfips','miss']])
-    # без блек листов XGB. Ошибка SMAPE: 1.0805449694484606, хуже чем моделью = 1195
-
-else:
-    # БЛЕК ЛИСТ СОХРАНЯЮЩИЙСЯ В ФАЙЛЕ 1.0692455614504854 // 1.0871 на сайте
-    # список 'cfips' у которых ошибка модели больше чем ошибка модели '='
-    blacklistcfips = pd.read_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv")
 
 # определение среднего размера ошибки
 def smape(y_true, y_pred):
@@ -78,41 +62,6 @@ def censusdef(census, raw):
                 raw.loc[maska, col] = row_census[ncol]
     return raw
 
-# УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-def del_outliers(raw):
-    outliers = []  # список выбросов
-    cnt = 0  # счетчик выбросов
-    vsego = 0
-    # цикл по уникальным cfips
-    for o in tqdm(raw.cfips.unique()):  # tqdm - прогресс бар
-        indices = (raw['cfips'] == o)  # маска отфильтрованная по cfips
-        tmp = raw.loc[indices].copy().reset_index(drop=True)  # df фильтрован по cfips
-        # массив значений microbusiness_density
-        var = tmp.microbusiness_density.values.copy()
-        # vmax = np.max(var[:38]) - np.min(var[:38])
-
-        # цикл назад от предпоследнего до 2-го элемента
-        for i in range(37, 2, -1):
-            # среднее значение microbusiness_density с 0-го по i-й элемент * 0.2
-            thr = 0.10 * np.mean(var[:i]) # XGB. Ошибка SMAPE: 1.0802560258625178
-            # разность i-го и i-1-го значения microbusiness_density
-            difa = var[i] - var[i - 1] #XGB. Ошибка SMAPE: 1.161117561342498
-            if (difa >= thr) or (difa <= -thr):  # если microbusiness_density изменился больше чем на 20%
-                if difa > 0:
-                    var[:i] += difa - 0.0045 # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
-                else:
-                    var[:i] += difa + 0.0043 # 0.0043 лучше чем 0.003 и чем 0.006
-                # Предсказано XGB.Ошибка SMAPE: 0.9178165883836801
-                # Равенство последнему значению. Ошибка SMAPE: 1.0078547907542301
-                outliers.append(o)  # добавляем cfips в список выбросов
-                cnt += 1  # счетчик выбросов
-            vsego += 1
-        var[0] = var[1] * 0.99
-        raw.loc[indices, 'microbusiness_density'] = var
-    outliers = np.unique(outliers)
-    print(len(outliers), cnt, cnt/vsego*100)
-    return raw
-
 #SMAPE — это относительная метрика, поэтому цель raw['target'] преобразована и равна отношению
 # 'microbusiness_density' за следующий месяц к текущему значению 'microbusiness_density' - 1
 def chang_target(raw):
@@ -120,31 +69,23 @@ def chang_target(raw):
     raw['target'] = raw.groupby('cfips')['microbusiness_density'].shift(-1)
     # -1, чтобы при не изменении значения 'microbusiness_density' - 'target'==0
     raw['target'] = raw['target'] / raw['microbusiness_density'] - 1
+
+    raw['target'].fillna(0, inplace=True) # с и без, одинаково  Ошибка SMAPE: 1.0803235911612419, хуже чем моделью = 1371
+
+    raw.loc[(raw['target'] < - 0.0054), 'target'] = - 0.0054
+    raw.loc[(raw['target'] > 0.0054), 'target'] = 0.0054
+
     # в этих 'cfips' значение 'active' аномально маленькие
     raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
     raw.loc[raw['cfips'] == 48269, 'target'] = 0.0
     return raw
 
-# создаем новые столбцы 'lastactive' и 'lasttarget'
+# создаем новые столбцы 'lastactive'
 def mace_fold(raw):
     # 'lastactive' содержит значение 'active' одинаковое для всех строк с одним 'cfips'
     # и равное 'active' за последний месяц (сейчас 2022-10-01)
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-    # серия из 'cfips' и 'microbusiness_density' 28-го месяца из трайн
-    dt = raw.loc[raw.dcount == 28].groupby('cfips')['microbusiness_density'].agg('last')
-    # 'lasttarget' содержит значение 'microbusiness_density' 28-го месяца из трайн
-    # одинаковое для всех строк с одним 'cfips'
-    raw['lasttarget'] = raw['cfips'].map(dt)
-    # в пределах от 0 до 8000
-    raw['lastactive'].clip(0, 8000).hist(bins=30)
     return raw
-
-# скользящая средняя
-def weighted_moving_average(df, column, n):
-    nam = 'EMA_' + str(n)
-    EMA = pd.Series(df[column].ewm(span=n, adjust=False, min_periods=n).mean(), name = nam)
-    df = df.join(EMA)
-    return df, nam
 
 # создаем 4 лага 'mbd_lag_{lag}' - (отношение 'microbusiness_density' следующего
 # месяца к текущему - 1); 4 лага 'act_lag_{lag} - (разность 'active' следующей
@@ -159,6 +100,10 @@ def build_features(raw, target='target', target_act='active', lags=4):
     for lag in range(1, lags):   #XGB. Ошибка SMAPE: 1.07924633283354
         # shift - сдвиг на определеное кол. позиций
         raw[f'mbd_lag_{lag}'] = raw.groupby('cfips')[target].shift(lag)
+
+        # без этого Ошибка SMAPE: 1.0806806350184754, хуже чем моделью = 1362
+        raw[f'mbd_lag_{lag}'].fillna(0, inplace = True) # с этим Ошибка SMAPE: 1.0803235911612419, хуже чем моделью = 1371
+
         # из значения 'active' следующей через лаг строки вычитается значение
         # текущей строки. diff - разность элемента df с элементом через lag
         raw[f'act_lag_{lag}'] = raw.groupby('cfips')[target_act].diff(lag)
@@ -174,20 +119,11 @@ def build_features(raw, target='target', target_act='active', lags=4):
         # raw[f'mbd_rollmea{window}_{lag}'] = raw[f'mbd_lag_{lag}'] - raw[f'mbd_rollmea{window}_{lag}']
         feats.append(f'mbd_rollmea{window}_{lag}')
 
-    # for ss in [4,6,8]:
-    #     raw, name = weighted_moving_average(raw, 'mbd_lag_1', ss)
-    #     feats.append(name)
-    # raw['proc_covill_state'] = 0
-    # raw['proc_covill_us'] = 0
-    # for mes in range(0, 47):  # цикл по месяцам
-    #     raw.loc[raw['dcount']==mes, 'proc_covill_us']=raw.loc[raw['dcount']==mes]['proc_covill'].mean()
-    #     for state_i in raw.state_i.unique():
-    #         maska = (raw['dcount']==mes)&(raw['state_i']==state_i)
-    #         raw.loc[maska, 'proc_covill_state_i'] =raw[maska]['proc_covill'].mean()
     features = ['state_i']
     # Проверенно бесполезные колонки "month",
     features += feats  # список имен лагов и сумм окон
     features += ['proc_covill', 'Population', 'pct_college', 'median_hh_inc'] #XGB. Ошибка SMAPE: 1.0802560258625178, уже чем моделью = 1192
+    #features += ['Population', 'pct_college', 'median_hh_inc']
     #features += ['sp500'] #
 
     print(features)
@@ -195,74 +131,100 @@ def build_features(raw, target='target', target_act='active', lags=4):
 # бесполезны - 'pct_bb', 'pct_foreign_born', 'pct_it_workers'
 # XGB. Ошибка SMAPE: 1.0813450261766775/ количство cfips предсказанных хуже чем моделью = 1232
 
+def build_features_1(raw, target='target', target_act='active', lags=4): # 1.436702 -0.047121  154.071433
+    train_col = []  # список полей используемых в трайне
+    # создаем 1 лаг 'microbusiness_density'
+    raw['mbd_lag_1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    raw['mbd_lag_1'].fillna(method='bfill', inplace=True)
+    train_col.append('mbd_lag_1')
+    # вместе с target_lag error 1.421159 -0.110187
+
+    # создаем лаги 'microbusiness_density' с учетом сглаживания от 1 до lags
+    # for lag in range(1, 12):#12):
+    #     # с учетом сглаживания # shift - сдвиг на определеное кол. позиций
+    #     #raw[f'mbd_lag{lag+1}'] = raw[f'mbd_lag{lag}'] - raw.groupby('cfips')['mbd_gladkaya_dif'].shift(lag)
+    #
+    #     # без учета сглаживания
+    #     raw[f'mbd_lag{lag + 1}'] = raw.groupby('cfips')['microbusiness_density'].shift(lag+1)
+    #
+    #     raw[f'mbd_lag{lag+1}'].fillna(method='bfill', inplace=True)
+
+    # создаем лаги 'target' с учетом сглаживания от 1 до lags
+    # for lag in range(1, 12): #
+    #     raw[f'target_lag{lag}'] = raw.groupby('cfips')[f'mbd_lag{lag}'].shift()
+    #     # -1, чтобы при не изменении значения 'microbusiness_density' - 'target'==0
+    #     raw[f'target_lag{lag}'] = raw[f'mbd_lag{lag}'] / raw[f'target_lag{lag}'] - 1
+    #     raw.loc[raw[f'mbd_lag{lag}'] == 0, f'target_lag{lag}'] = 0
+    #     train_col.append(f'target_lag{lag}')  # список полей используемых в трайне
+    # error 1.428251 -0.03867  151.777053
+
+    #создаем лаги 'target' без учета сглаживания
+    for lag in range(1, 12): # 1.379084  0.010497  146.812119
+        raw[f'target_lag{lag}'] = raw.groupby('cfips')['target'].shift(lag)
+        train_col.append(f'target_lag{lag}')
+
+    #ЭФФЕКТИВНО
+    li = [3, 4, 14, 17] # error - 1.379084  0.010497  146.812119
+    # создаем скользящие средние.
+    for i in li:
+        nam = f'EMA_{i}'
+        EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
+        raw[nam] = EMA
+        train_col += [nam]
+
+    #создаем значения сумм окон для lag = 1
+    for i in [2]: #li = [3, 4, 14, 17] и param=2 - 1.428251 -0.038670  151.777053
+        nam = f'roll_{i}'
+        # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
+        ROLL = raw.groupby('cfips')['target_lag1'].transform(lambda s: s.rolling(i, min_periods=1).sum())
+        raw[nam] = ROLL
+        train_col += [nam]
+
+    # создаем 1 лаг 'active' - общее количество микропредприятий в округе
+    raw['active_lag1'] = raw.groupby('cfips')['active'].shift(1)
+    train_col += ['active_lag1']
+    train_col += ['state_i', 'proc_covill', 'pct_college', 'median_hh_inc', 'sp500', 'month']
+    return raw, train_col
 
 # создание модели градиентного бустинга
 def model_XGBRegressor():
+    # Создаем модель
     model = xgb.XGBRegressor(
-        objective='reg:pseudohubererror',
-        # objective='reg:squarederror',
-        tree_method="hist",
-        n_estimators=4999,
-        learning_rate=0.0075,
+        tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
+        n_estimators=850,
+        learning_rate= 0.0071, #param, #0.0108, #важная штука
+        # max_depth=8, этот вариант лучше чем max_leaves=17 но в 2 раза дольше.
+        # В окончательном варианте надо удалить max_leaves=17 и поставить max_depth=8
         max_leaves=17,
-        subsample=0.50,
-        colsample_bytree=0.50,
-        max_bin=4096,
+        #max_bin=4096, #Увеличение повышает оптимальность за счет увеличения времени вычислений.
         n_jobs=2,
-        eval_metric='mae',
-        early_stopping_rounds=70,
     )
     return model
 
 # обучение модели
 def learn_model(model, raw, train_indices, valid_indices):
+    dfXtrain = raw.loc[train_indices, features]
+    dfytrain = raw.loc[train_indices, 'target'].clip(-0.0043, 0.0045)
+
+    dfXtest = raw.loc[valid_indices, features]
+    dfy_test = raw.loc[valid_indices, 'target']
     # обучение модели
-    model.fit(
-        # Трайн. features - список имен столбцов
-        raw.loc[train_indices, features],
-        # y(игрик) модели
-        raw.loc[train_indices, 'target'].clip(-0.0043, 0.0045),
-        # валидационная выборка из 1 месяца
-        eval_set=[(raw.loc[valid_indices, features], raw.loc[valid_indices, 'target'])],
-        verbose=500,
-    )
+    model.fit(dfXtrain, dfytrain) #Ошибка SMAPE: 1.3849105539299413
     return model
 
 # предсказание на основе модели
 def predsk_model(raw, valid_indices, model):
     # предсказание модели на основе валидационной выборки и списка имен столбцов
     ypred = model.predict(raw.loc[valid_indices, features])
+    raw.loc[valid_indices, 'ypred_target'] = ypred
     # получаем из значения предсказанного ypred, который есть 'target'
     # предсказанное значение 'microbusiness_density' и помещаем его в 'k'
     raw.loc[valid_indices, 'k'] = ypred + 1
     raw.loc[valid_indices, 'k'] = raw.loc[valid_indices, 'k'] * raw.loc[valid_indices, 'microbusiness_density']
     return raw
 
-def blacklist(df):
-    global blacklistcfips, not_blec
-    if not_blec != 1: # 1 - без блек листа
-        pass
-        for index, row in blacklistcfips.iterrows():
-            cfips = row['cfips']
-            # XGB. Ошибка SMAPE: 1.0692455614504854 / 1.0871 - при сверке на сайте
-            if (row['miss'] > 0.5) | (row['hit'] < 0):
-                df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
-
-            # XGB.Ошибка SMAPE: 1.072776015639455 / 1.088
-            # if (row['miss'] > 0.5):
-            #       df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
-            # XGB. Ошибка SMAPE: 1.0459393718374939 / 1.0891
-            # if (row['hit'] < 0):
-            #     df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
-
-            # XGB. Ошибка SMAPE: 1.1003233174468263 / 1.0875
-            # if (row['miss'] > 0.4):
-            #       df.loc[df['cfips'] == cfips, 'pred'] = df.loc[df['cfips'] == cfips, 'lastval']
-
-    return df
-
 # Не валидация. Заменяем часть предсказаний модели на предсказание модели '='
-def valid_rez(raw, TS, ACT_THR, ABS_THR):
+def valid_rez(raw, TS):
     # Валидация
     # создаем словари 'microbusiness_density' и 'k'
     lastval = raw.loc[raw.dcount == TS, ['cfips', 'microbusiness_density']].set_index('cfips').to_dict()[
@@ -275,13 +237,7 @@ def valid_rez(raw, TS, ACT_THR, ABS_THR):
     df['pred'] = df['cfips'].map(dt)
     # создаем колонку реальность 'microbusiness_density' TS-го месяца
     df['lastval'] = df['cfips'].map(lastval)
-    # если active маленький то предсказание равно реальности TS-го месяца
-    df.loc[df['lastactive'] <= ACT_THR, 'pred'] = df.loc[df['lastactive'] <= ACT_THR, 'lastval']
-    # если 'microbusiness_density' ниже порога, то предсказание равно реальности
-    df.loc[df['lastval'] <= ABS_THR, 'pred'] = df.loc[df['lastval'] <= ABS_THR, 'lastval']
-    # если 'cfips' в черном списке то предсказание равно реальности TS-го месяца
-    df = blacklist(df)
-    #df.loc[df['cfips'].isin(blacklistcfips), 'pred'] = df.loc[df['cfips'].isin(blacklistcfips), 'lastval']
+
     # создаем колонку предсказаний
     raw.loc[raw.dcount == (TS + 1), 'ypred'] = df['pred'].values
     # создаем колонку предыдущих значений
@@ -294,20 +250,18 @@ def valid_rez(raw, TS, ACT_THR, ABS_THR):
     print()
     return raw
 
-def model(raw, ACT_THR, ABS_THR, kol_mes):
+def model(raw):
     raw['ypred_last'] = np.nan
     raw['ypred'] = np.nan
     raw['k'] = 1.
     BEST_ROUNDS = []  # лучшие раунды
     # TS - номер месяца валидацииции. Месяцы то TS это трайн.
     for TS in range(29, 38):
-    #for TS in range(36, 38):
         #print(TS)
         # создание модели
         model = model_XGBRegressor()
         # маска тренировочной выборки
-        train_indices = (raw.istest == 0) & (raw.dcount < TS) & (raw.dcount >= 1) & (raw.lastactive > ACT_THR) & (
-                raw.lasttarget > ABS_THR)
+        train_indices = (raw.istest == 0) & (raw.dcount < TS) & (raw.dcount >= 1)
         # маска валидационной выборки. Валидация по 1 месяцу
         valid_indices = (raw.istest == 0) & (raw.dcount == TS)
         # обучение модели
@@ -315,7 +269,7 @@ def model(raw, ACT_THR, ABS_THR, kol_mes):
         BEST_ROUNDS.append(model.best_iteration)  # добавляем в список лучших раундов
         # предсказание на основе модели
         raw = predsk_model(raw, valid_indices, model)
-        raw = valid_rez(raw, TS, ACT_THR, ABS_THR)
+        raw = valid_rez(raw, TS)
     # маска при которой вероятно все хорошо
     ind = (raw.dcount >= 30) & (raw.dcount <= 38)
     print('Предсказано XGB. Ошибка SMAPE:',
@@ -324,7 +278,6 @@ def model(raw, ACT_THR, ABS_THR, kol_mes):
           smape(raw.loc[ind, 'microbusiness_density'], raw.loc[ind, 'ypred_last']))
 
 def kol_error(raw):
-    global blacklistcfips
     # Выводы
     print('Выводы 1')
     raw['error'] = vsmape(raw['microbusiness_density'], raw['ypred'])
@@ -334,21 +287,10 @@ def kol_error(raw):
     # преобразуем dt в серию булевых значений 'miss'
     dt['miss'] = dt['error'] > dt['error_last'] # ошибка модели > ошибки модели '='
     seria_dt = dt.groupby('cfips')['miss'].mean()
-    ser_err = dt.groupby('cfips')['error'].mean()
-    ser_error_last = dt.groupby('cfips')['error_last'].mean()
-    df_dt = pd.DataFrame({'cfips': seria_dt.index, 'miss': seria_dt, 'hit':(ser_error_last-ser_err)})
     seria_dt = seria_dt.loc[seria_dt>=0.50] # оставляем только те, где ['miss'].mean() > 0.5
     print('количство cfips предсказанных хуже чем моделью =', len(seria_dt))
-    if not_blec == 1: # 1 - без блек листа
-        df_dt.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
-    # else:
-    #     blacklistcfips = blacklistcfips.set_index('cfips')
-    #     blacklistcfips['miss2'] = df_dt['miss']
-    #     #df_dt.rename(columns={'miss': 'miss2'})
-    #     blacklistcfips.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
-    #     pass
 
-def rezultat(raw, ACT_THR, ABS_THR, kol_mes):
+def rezultat(raw):
     best_rounds = 794
     TS = 38
     print(TS)
@@ -380,8 +322,7 @@ def rezultat(raw, ACT_THR, ABS_THR, kol_mes):
         eval_metric='mae',
     )
     # тренировочная выборка
-    train_indices = (raw.istest == 0) & (raw.dcount < TS) & (raw.dcount >= 1) & (raw.lastactive > ACT_THR) & (
-                raw.lasttarget > ABS_THR)
+    train_indices = (raw.istest == 0) & (raw.dcount < TS) & (raw.dcount >= 1)
     # валидационная выборка
     valid_indices = (raw.dcount == TS)
     # обучение моделей
@@ -411,13 +352,8 @@ def rezultat(raw, ACT_THR, ABS_THR, kol_mes):
     df['pred'] = df['cfips'].map(dt)
     # создаем колонку реальность 'microbusiness_density' TS-го месяца
     df['lastval'] = df['cfips'].map(lastval)
-    # если active маленький то предсказание равно реальности TS-го месяца
-    df.loc[df['lastactive'] <= ACT_THR, 'pred'] = df.loc[df['lastactive'] <= ACT_THR, 'lastval']
+
     # если 'microbusiness_density' ниже порога, то предсказание равно реальности
-    df.loc[df['lastval'] <= ABS_THR, 'pred'] = df.loc[df['lastval'] <= ABS_THR, 'lastval']
-    # если 'cfips' в черном списке то предсказание равно реальности TS-го месяца
-    df = blacklist(df)
-    #df.loc[df['cfips'].isin(blacklistcfips), 'pred'] = df.loc[df['cfips'].isin(blacklistcfips), 'lastval']
     raw.loc[raw.dcount == (TS + 1), 'ypred'] = df['pred'].values
     raw.loc[raw.dcount == (TS + 1), 'ypred_last'] = df['lastval'].values
 
@@ -430,33 +366,22 @@ def rezultat(raw, ACT_THR, ABS_THR, kol_mes):
 
     test[['row_id', 'microbusiness_density']].to_csv('C:\\kaggle\\МикроБизнес\\dlia_sverki.csv', index=False)
 
-
-#ACT_THR = 1.8  # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
-# ABS_THR = 1  # XGB. Ошибка SMAPE: 1.0802560258625178, хуже чем моделью = 1192
-ABS_THR = 0 # XGB. Ошибка SMAPE: 1.0696013545952172, хуже чем моделью = 1108
-ACT_THR = 54 # XGB. Ошибка SMAPE: 1.0696013545952172, хуже чем моделью = 1108
-# ACT_THR = 100 # XGB. Ошибка SMAPE: 1.0713126984505543
-#ACT_THR = 250 # XGB. Ошибка SMAPE: 1.0841285464311818, хуже чем моделью = 630
-
-kol_mes = 22 # количество месяцев используемых для обучения модели
-
 # train, test, census = start() # загрузка файлов
 # raw = maceraw(train, test) # объединенный массив трейна и теста, создание объединенного raw
 # raw = censusdef(census, raw) # объудинение census и raw
 # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw0.csv", index = False)
 raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw0_cov_econ.csv")
 raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
-raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-raw = chang_target(raw) # изменение цели
-raw = mace_fold(raw) # создаем новые столбцы 'lastactive' и 'lasttarget'
-raw.to_csv("C:\\kaggle\\МикроБизнес\\raw1.csv", index = False)
 
-# raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw1.csv")
+#raw = del_outliers(raw) # УДАЛЕНИЕ ВЫБРОСОВ. Предсказано XGB. Ошибка SMAPE: 1.0806806350184754, хуже чем моделью = 1362
+
+raw = chang_target(raw) # изменение цели
+raw = mace_fold(raw) # создаем новые столбцы 'lastactive'
 raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
 
 raw, features = build_features(raw, 'target', 'active', lags = 4) # создаем лаги и суммы в окнах
-model(raw, ACT_THR, ABS_THR, kol_mes)
+model(raw)
 kol_error(raw) # анализ ошибок собранных по всем моделям
-rezultat(raw, ACT_THR, ABS_THR, kol_mes)
+#rezultat(raw)
 
 # XGB. Ошибка SMAPE: 1.0805449694484606

@@ -30,108 +30,61 @@ def vsmape(y_true, y_pred):
     smap[pos_ind] = num[pos_ind] / dem[pos_ind]
     return 100 * smap
 
-# УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-def del_outliers(raw, l_vibr=0.018, verh=0.0144, niz = 0.0046): # l_vibr, verh, niz - параметры для оптимизации
-    # для verh и niz 0.0045 лучше чем 0.003 и чем 0.006
-    raw['mbd_gladkaya']=0 # в результате функции создается новая колонка - сглаженный 'microbusiness_density'
-    raw['mbd_gladkaya_dif'] = 0  # изменение сглаженного 'microbusiness_density'
-    outliers = []  # список выбросов
-    cnt = 0  # счетчик выбросов
-    vsego = 0
-    # цикл по уникальным cfips
-    print('Удаление выбросов')
-    for cfips in tqdm(raw.cfips.unique()):  # tqdm - прогресс бар
-        maska_cfips = (raw['cfips'] == cfips)  # маска отфильтрованная по cfips
-        tmp = raw.loc[maska_cfips].copy().reset_index(drop=True)  # df фильтрован по cfips
-        # массив значений microbusiness_density при cfips из цикла
-        mb_d = tmp.microbusiness_density.values.copy()
-        # цикл назад от предпоследнего до 2-го элемента
-        for i in range(38, 2, -1): # у умного чувака было с 37 по 2(не вкл.) элемента вниз
-            # среднее значение microbusiness_density с 0-го по i-й элемент * l_vibr
-            thr = l_vibr * np.mean(mb_d[:i])
-            difa = mb_d[i] - mb_d[i - 1]
-            if (difa >= thr) or (difa <= -thr):  # если microbusiness_density изменился больше чем на l_vibr%
-                if difa > 0:
-                    mb_d[:i] += difa - verh # verh=0.0144 error 1.791025, dif_err -0.401444
-                else:
-                    mb_d[:i] += difa + niz # 0.0046 error 1.791025, dif_err -0.401444
-                outliers.append(cfips)  # добавляем cfips в список выбросов
-                cnt += 1  # счетчик выбросов
-            vsego += 1
-        # mb_d[0] = mb_d[1] * 0.99  # у умного чувака была эта фигня
-        raw.loc[maska_cfips, 'mbd_gladkaya'] = mb_d
-        raw.loc[maska_cfips, 'mbd_gladkaya_dif'] = raw.loc[maska_cfips, 'mbd_gladkaya'].diff(1).fillna(0)
-    outliers = np.unique(outliers)
-    print('Кол. cfips с разрывами =', len(outliers), 'Кол. разрывов =', cnt, '% разрывов',cnt/vsego*100)
+# создание нового таргета
+def new_target(raw, param):
+    # 'target' ='microbusiness_density' предыдущего месяца при том же 'cfips'
+    raw['target'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    # -1, чтобы при не изменении значения 'microbusiness_density' - 'target'==0
+    # 'target' ='microbusiness_density' текущего месяца делить на предыдущего месяца - 1
+    raw['target'] = raw['microbusiness_density'] / raw['target'] - 1
+    raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
+    raw['target'].fillna(0, inplace=True)
+
+    raw.loc[(raw['target'] < - 0.0054), 'target'] = - 0.0054
+    raw.loc[(raw['target'] > 0.0054), 'target'] = 0.0054 # 2.18317 -0.026207
+
+    # raw.loc[(raw['target'] > param), 'target'] = param
+    # raw.loc[(raw['target'] < -param), 'target'] = -param
+
+    # в этих 'cfips' значение 'active' аномально маленькие
+    raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
+    raw.loc[raw['cfips'] == 48269, 'target'] = 0.0
     return raw
 
-# УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
-def del_outliers_max(raw, max_cfips, l_vibr=0.018, verh=0.0144, niz = 0.0046): # l_vibr, verh, niz - параметры для оптимизации
-    # для verh и niz 0.0045 лучше чем 0.003 и чем 0.006
-    # raw['mbd_gladkaya']=0 # в результате функции создается новая колонка - сглаженный 'microbusiness_density'
-    # raw['mbd_gladkaya_dif'] = 0  # изменение сглаженного 'microbusiness_density'
-    outliers = []  # список выбросов
-    cnt = 0  # счетчик выбросов
-    vsego = 0
-    # цикл по уникальным cfips
-    print('Удаление выбросов')
-    df = raw[raw['cfips']>max_cfips]
-    for cfips in tqdm(df.cfips.unique()):  # tqdm - прогресс бар
-        maska_cfips = (raw['cfips'] == cfips)  # маска отфильтрованная по cfips
-        tmp = raw.loc[maska_cfips].copy().reset_index(drop=True)  # df фильтрован по cfips
-        # массив значений microbusiness_density при cfips из цикла
-        mb_d = tmp.microbusiness_density.values.copy()
-        # цикл назад от предпоследнего до 2-го элемента
-        for i in range(38, 2, -1): # у умного чувака было с 37 по 2(не вкл.) элемента вниз
-            # среднее значение microbusiness_density с 0-го по i-й элемент * l_vibr
-            thr = l_vibr * np.mean(mb_d[:i])
-            difa = mb_d[i] - mb_d[i - 1]
-            if (difa >= thr) or (difa <= -thr):  # если microbusiness_density изменился больше чем на l_vibr%
-                if difa > 0:
-                    mb_d[:i] += difa - verh # verh=0.0144 error 1.791025, dif_err -0.401444
-                else:
-                    mb_d[:i] += difa + niz # 0.0046 error 1.791025, dif_err -0.401444
-                outliers.append(cfips)  # добавляем cfips в список выбросов
-                cnt += 1  # счетчик выбросов
-            vsego += 1
-        # mb_d[0] = mb_d[1] * 0.99  # у умного чувака была эта фигня
-        raw.loc[maska_cfips, 'mbd_gladkaya'] = mb_d
-        raw.loc[maska_cfips, 'mbd_gladkaya_dif'] = raw.loc[maska_cfips, 'mbd_gladkaya'].diff(1).fillna(0)
-    outliers = np.unique(outliers)
-    if vsego != 0:
-        print('Кол. cfips с разрывами =', len(outliers), 'Кол. разрывов =', cnt, '% разрывов',cnt/vsego*100)
-    return raw
-
-# создание лагов
-def build_lag(raw):
-    # создаем 1 лаг 'microbusiness_density'
-    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
-    train_col = ['mbd_lag1']  # список полей используемых в трайне
-    # создаем лаги 'microbusiness_density' с учетом сглаживания от 1 до lags
-    for lag in range(1, 3):
-        # shift - сдвиг на определеное кол. позиций
-        raw[f'mbd_lag{lag+1}'] = raw[f'mbd_lag{lag}'] - raw.groupby('cfips')['mbd_gladkaya_dif'].shift(lag)
-        train_col.append(f'mbd_lag{lag + 1}')
-        raw[f'mbd_lag{lag+1}'].fillna(method='bfill', inplace=True)
-    li = [3 ,7, 10]
+# создание лагов  error 1.379034  0.010546  146.796656
+def build_lag(raw): #
+    train_col = []  # список полей используемых в трайне
+    #создаем лаги 'target'
+    for lag in range(1, 12): # 1.379084  0.010497  146.812119
+        raw[f'target_lag{lag}'] = raw.groupby('cfips')['target'].shift(lag)
+        train_col.append(f'target_lag{lag}')
     # создаем скользящие средние.
-    for i in li:
-        nam = f'EMA_{i}'  # лучшая скользящая средняя - 3 : error 1.791025, dif_err -0.401444
-        EMA = pd.Series(raw['mbd_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
+    for i in [3, 4, 14, 17]:
+        nam = f'EMA_{i}'
+        EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
         raw[nam] = EMA
         train_col += [nam]
+    #создаем значения сумм окон для lag = 1
+    for i in [2]:
+        nam = f'roll_{i}'
+        # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
+        ROLL = raw.groupby('cfips')['target_lag1'].transform(lambda s: s.rolling(i, min_periods=1).sum())
+        raw[nam] = ROLL
+        train_col += [nam]
+    # создаем 1 лаг 'microbusiness_density'
+    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    raw['mbd_lag1'].fillna(method='bfill', inplace=True)
     # создаем 1 лаг 'active' - общее количество микропредприятий в округе
     raw['active_lag1'] = raw.groupby('cfips')['active'].shift(1)
-    train_col += ['active_lag1']
-  #  df = raw[['row_id', 'microbusiness_density', 'mbd_gladkaya', 'mbd_gladkaya_dif', nam]+train_col]
+    train_col += ['mbd_lag1', 'active_lag1']
     return raw, train_col
 
 # получение трайна и 'y' (игрик) для модели, mes_1 - первый месяц с которого используем трайн для модели
 def train_and_y(raw, mes_1, mes_val, train_col): # train_col - список используемых полей трейна
-    # маска тренировочной выборки
+    # маска тренировочной выборки 1.408914 -0.097942
     maska_train = (raw.istest == 0) & (raw.dcount < mes_val) & (raw.dcount >= mes_1)
     train = raw.loc[maska_train, train_col]
-    y = raw.loc[maska_train, 'microbusiness_density']
+    y = raw.loc[maska_train, 'target']
     return train, y
 
 # Получение х_тест и y_тест. mes_val - месяц по которому проверяем модель
@@ -139,15 +92,8 @@ def x_and_y_test(raw, mes_val, train_col): # train_col - список испол
     # маска валидационной выборки. Валидация по 1 месяцу
     maska_val = (raw.istest == 0) & (raw.dcount == mes_val)
     X_test = raw.loc[maska_val, train_col]
-    y_test = raw.loc[maska_val, 'microbusiness_density']
+    y_test = raw.loc[maska_val, 'target']
     return X_test, y_test
-
-# Сохраняем результат.
-def sbor_rezult(raw, y_pred, y_test, mes_val):
-    #vsmape(y_test, y_pred)
-    #Почему то у умного чувака mes_val + 1 ! Вроде должно быть mes_val
-    raw.loc[raw.dcount == mes_val, 'ypred'] = y_pred
-    return raw
 
 # создание блек листа 'cfips' для теста, может делать это моделью
 def mace_blac_list(raw, mes_1, mes_val, blac_cfips, param=-1):
@@ -166,13 +112,10 @@ def mace_blac_list(raw, mes_1, mes_val, blac_cfips, param=-1):
     seria_dt = seria_dt.loc[seria_dt>=0.50] # оставляем только те, где ['miss'].mean() > 0.5
     print('количство cfips предсказанных хуже чем моделью =', len(seria_dt))
     # Признак отправления в блек лист
-    #blec_maska = df_dt['dif_err'] < param # param от 0 (большой блек) до -10 (малый блек). Проблема 1 выброс
     blec_maska = (df_dt['miss'] >= 0.5) # от 0.5 (большой блек) до 1 (малый блек) Проблема на 1-м месяце исключит всех
-    #df_dt.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
-    #df_dt = df_dt[~blec_maska]
     df_dt.sort_values(by='lastactive', inplace=True)
-    shad = 10
-    for lastactive in range(50, 250, shad):
+    shad = 40
+    for lastactive in range(30, 800, shad):
         maska = (df_dt['lastactive']>lastactive)&(df_dt['lastactive']<=lastactive+shad)
         horoshie = df_dt[~blec_maska&maska].count()['lastactive']
         vsego = df_dt[maska].count()['lastactive']
@@ -183,13 +126,6 @@ def mace_blac_list(raw, mes_1, mes_val, blac_cfips, param=-1):
     horoshie = df_dt[~blec_maska & maska].count()['lastactive']
     vsego = df_dt[maska].count()['lastactive']
     print(f'От {lastactive} до {lastactive + shad} :хор.{horoshie}, всего {vsego}, % хор={horoshie / vsego * 100}')
-
-    pass
-    # blac_cf = list(blac_cf)
-    # #if mes_val > mes_1+5: 1.524041 -0.233395     0.041235
-    # if mes_val > mes_1 + 3:
-    #     print('Размер блек листа', len(blac_cf))
-    #     blac_cfips = list(blac_cfips)+blac_cf
     return blac_cfips
 
 # вывод на печать информацию по качеству работы модели в каждом штате
@@ -241,19 +177,6 @@ def validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, para
     err_y_no_blac = smape(target, y_no_blac)
     print('Без блек листа. Ошибка SMAPE:', err_y_no_blac)
 
-    # смотрел зависимость ошибок от ластактиве. Первое успешное предсказание при lastactive = 10
-    # raw['error'] = vsmape(raw['microbusiness_density'], raw['y_no_blac'])
-    # raw['error_last'] = vsmape(raw['microbusiness_density'], raw['mbd_lag1'])
-    # raw['diferror'] = raw['error_last']-raw['error']
-    # raw.sort_values(by=['lastactive','row_id'],inplace=True)
-    # raw = raw[(raw.dcount >= start_val) & (raw.dcount <= stop_val) & (raw.cfips <= max_cfips)]
-    # df = raw[['cfips','lastactive','diferror']].groupby(['lastactive','cfips']).mean()
-    # print('lastactive min=', raw[(raw['error']>0)&(raw.dcount >= start_val) & (raw.dcount <= stop_val) &
-    #                              (raw.cfips <= max_cfips)]['lastactive'].min())
-
-    #print_state(raw, maska) # вывод на печать информацию по качеству работы модели в каждом штате
-    #print_month(raw, maska)
-
     dif_err = err_last - err_mod # положительная - хорошо
     dif_no_blac = err_y_no_blac - err_mod # положительная - хорошо
     rezult.loc[len(rezult.index)] = [param1, param2, param3, err_mod, dif_err, dif_no_blac]
@@ -266,13 +189,10 @@ def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0):
     # получение х_тест и y_тест
     X_test, y_test = x_and_y_test(raw, mes_val, train_col)
     # Создаем модель
-    #model = RandomForestRegressor(n_estimators=100, min_samples_split=50, n_jobs=2, random_state=322) #error 7.977319
-    # лучшее n_estimators=900 лучше чем 500, лучше чем 100,  разница ошибки между 900 и 100 - 0.5%
-    # 100 деревьев в 5 раз быстрее 900 деревьев
     model = xgb.XGBRegressor(
         tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
-        n_estimators=1000,
-        learning_rate=0.0108, #важная штука
+        n_estimators=850,
+        learning_rate=0.0071, #важная штука
         # max_depth=8, этот вариант лучше чем max_leaves=17 но в 2 раза дольше.
         # В окончательном варианте надо удалить max_leaves=17 и поставить max_depth=8
         max_leaves=17,
@@ -282,6 +202,10 @@ def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0):
     model.fit(X_train, y_train)
     # Предсказываем
     y_pred = model.predict(X_test)
+
+    y_pred = y_pred + 1
+    y_pred = raw.loc[raw.dcount == mes_val, 'mbd_lag1'] * y_pred
+
     # сохраняем результат обработки одного цикла
     raw.loc[raw.dcount == mes_val, 'ypred'] = y_pred
     # прибавляем значимость столбцов новой модели к значениям предыдущих
@@ -294,9 +218,9 @@ def modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips):
     # c start_val начинаeтся цикл по перебору номера валидационного месяца до stop_val включительно
     for mes_val in tqdm(range(start_val, stop_val + 1)):  # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
         # здесь должен начинаться цикл по перебору номера первого месяца для трайна
-        mes_1 = 4 # error 1.598877, dif_err -0.287906, длинная модель
+        mes_1 = 2 #
         raw, znachenie = vsia_model1(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0)
-    blac_cfips = mace_blac_list(raw, start_val, mes_val, blac_cfips)
+    blac_cfips = mace_blac_list(raw, start_val, stop_val, blac_cfips)
     print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
     # print('Значимость колонок трайна в модели')
     # znachenie.sort_values(by='importance', ascending=False, inplace=True)
@@ -369,54 +293,63 @@ def new_cfips(raw, lastactive, max_cfips, kol = 2):
 
 
 def posle_sglashivfnia(raw, rezult):
-    # 'lastactive' содержит значение 'active' одинаковое для всех строк с одним 'cfips'
-    # и равное 'active' за последний месяц (сейчас 2022-10-01)
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-
     # создаем блек-лист cfips которых не используем в тесте
-    blac_test_cfips = raw.loc[(raw['lastactive'] < 600)|(raw['lastactive'] >= 1300), 'cfips']
-    #blac_test_cfips = raw.loc[(raw['lastactive'] < 50), 'cfips']
+    #min_int = 60; max_int = 100 #lastactive = 6500 error 2.126466 -0.020183     0.004978
+    #min_int = 100; max_int = 140 #lastactive = 6000 error 1.853605 -0.006954     0.004485
+    #min_int = 140; max_int = 190 #lastactive = 6690 error 1.744299 -0.000703     0.004817
+    #min_int = 190; max_int = 230 #lastactive = 9690 error 1.394248  0.007670     0.009076
+    #min_int = 230; max_int = 300 #lastactive = 16500 error 1.519239  0.010882     0.004581
+    #min_int = 300; max_int = 500 #lastactive =17500  error 1.222168  0.007713     0.001428
+    #min_int = 500; max_int = 1000 #lastactive =1500  error 1.065339  0.018434     0.003156
+    #min_int = 1000; max_int = 2000 #lastactive = 2000 error 1.025943  0.027024     0.004030
+    #min_int = 2000; max_int = 4000 #lastactive = 4500 error 0.909389  0.034093     0.004325
+    #min_int = 4000; max_int = 8000 #lastactive = 9500 error 0.858602  0.054814     0.003971
+    #min_int = 8000; max_int = 16000 #lastactive = 7200 error 0.701923  0.072343    0.005001
+    #min_int = 16000; max_int = 32000 #lastactive = 15000 error 0.861022  0.081539     0.008299
+    #min_int = 32000; max_int = 64000 #lastactive = 64000 error 0.751408  0.082716     0.006263
+    #min_int = 64000; max_int = бескон. #lastactive = 62000 error 0.892364  0.085921     0.004958
+    min_int = 64000
+    max_int = 243234534563465536000
+
+    blac_test_cfips = raw.loc[(raw['lastactive'] < min_int) | (raw['lastactive'] >= max_int), 'cfips']
+     #blac_test_cfips = raw.loc[(raw['lastactive']< 2000) | (raw['lastactive']>= 4000),'cfips']#max_active=60?
     blac_test_cfips = blac_test_cfips.unique()
     max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
     for kol in [2]:
-        for max_active in [1000000000000,5500,15200,20250] + list(range(16000,30000,1000)): # 1.110824 -0.061638     0.051209
-            for param in range(0,1,5):
-                max_active = 20250000000000000000
-                param = max_active
-                lastactive = 70
+        for param in range(1,2,1): # получается неактуальным
+            for lastactive in list(range(60000,64000,500))+list(range(64000,64001,1000)): # без этого 2.182730 -0.025767     0.000440
+                #max_active = 5730679879807890879767
+                param = 1 #max_active
+                #lastactive = -1
                 raw = raw[raw['cfips'] <= max_cfips]
                 # создаем блек-лист cfips который не нужен в трайне  1.997686 -0.152959     0.082025
-                maska = (raw['lastactive']>max_active)|(raw['lastactive']<=lastactive)
-                blac_cfips = raw.loc[maska, 'cfips'] # оптимально с lastactive до 32 убираем из трайна
+                #maska = (raw['lastactive']>max_active)|(raw['lastactive']<=lastactive)
+                #maska = (raw['lastactive'] <= lastactive)
+                if lastactive >= max_int:
+                    maska = (raw['lastactive'] < min_int)|((raw['lastactive'] > max_int)&
+                                                           (raw['lastactive'] < lastactive))
+                elif lastactive <= min_int:
+                    maska = (raw['lastactive'] < lastactive)
+                else:
+                    print('Чо за ерунда?')
+                blac_cfips = raw.loc[maska, 'cfips'] # убираем из трайна
                 blac_cfips = blac_cfips.unique()
-                # создаем гибриды из cfips меньше 29 (оптимально) для трайна
-                raw = new_cfips(raw, lastactive, max_cfips)
-                # сглаживаем гибриды
-                #del_outliers_max(raw, max_cfips, l_vibr=0.018, verh=0.0144, niz = 0.0046)
-                #
-                #
-
-                # здесь должен начинаться цикл по количеству лагов
+                # создаем гибриды из cfips для трайна
+                #raw = new_cfips(raw, lastactive, max_cfips)
+                raw = new_target(raw, param/10000)
                 raw, train_col = build_lag(raw)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
-                # здесь должен начинаться цикл перебирающий все комбинации из списка полей
-                train_col += ['state_i', 'proc_covill', 'pct_college', 'median_hh_inc', 'sp500', 'month']
-
-                # возможные поля 'Population', 'proc_covdeat', 'pct_bb', 'pct_foreign_born', 'pct_it_workers', 'unemploy'
                 start_val = 30  # первый месяц валидации с которого проверяем модель
                 stop_val = 38  # последний месяц валидации до которого проверяем модель
 
-                # модель без блек листа
+                #модель без блек листа
                 # raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, [])
                 # raw['y_no_blac'] = raw['ypred']
-                # raw.to_csv("C:\\kaggle\\МикроБизнес\\rawy_no_blac.csv", index=False)
+                # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv", index=False)
 
                 # валидация по результату обработки всех месяцев валидации в цикле
                 raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
                 rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, lastactive, param, kol)
-        # здесь заканчиваются циклы оптимизации
-        #rezult.to_csv("C:\\kaggle\\МикроБизнес\\rez_optim1.csv", index=False)
-        # raw['ypred_forest'] = raw['ypred']
-        # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_vmeste_forest.csv", index=False)
                 print('Сортировка по dif_no_blac')
                 rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
                 print(rezult.head(22))
@@ -431,7 +364,6 @@ def glavnaia(raw, rezult):
     raw['median_hh_inc'] = raw.groupby('cfips')['median_hh_inc'].ffill()
     raw['ypred'] = 0
     max_cfips = raw['cfips'].max() # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
-    raw = del_outliers(raw, l_vibr=0.018, verh=0.0144, niz=0.0046)  # сглаживание, убираем выбросы
     lastactive = 40  # оптимально 205
     # for lastactive in range(46, 51, 1):
     #     for param in range(41, lastactive+1, 1):
@@ -439,83 +371,18 @@ def glavnaia(raw, rezult):
     #raw = new_cfips(raw, param, max_cfips)
     posle_sglashivfnia(raw, rezult)
 
-def vsia_model_otdelno(raw, mes_1, mes_val, train_col, znachenie, cfips):
-    # получение трайна и 'y' (игрик) для модели
-    df = raw[raw['cfips'] == cfips]
-    X_train, y_train = train_and_y(df, mes_1, mes_val, train_col)
-    # получение х_тест и y_тест
-    X_test, y_test = x_and_y_test(df, mes_val, train_col)
-    # Создаем модель
-    rf = RandomForestRegressor(n_estimators=50, n_jobs=2, random_state=322)
-    # лучшее n_estimators=900 лучше чем 500, лучше чем 100,  разница ошибки между 900 и 100 - 0.5%
-    # 100 деревьев в 5 раз быстрее 900 деревьев
-    rf.fit(X_train, y_train)
-    # Предсказываем
-    y_pred = rf.predict(X_test)
-    # сохраняем результат обработки одного цикла
-    vsmape(y_test, y_pred)
-    raw.loc[(raw['dcount'] == mes_val)&(raw['cfips'] == cfips), 'ypred'] = y_pred
-    # прибавляем значимость столбцов новой модели к значениям предыдущих
-    znachenie['importance'] = znachenie['importance'] + rf.feature_importances_.ravel()
-    return raw, znachenie
-
-def glavnaia_otdelno(raw, rezult):
-    raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
-    raw['median_hh_inc'] = raw.groupby('cfips')['median_hh_inc'].ffill()
-    raw['ypred'] = 0
-    raw['error_otdelno']=0
-    # здесь должен начинаться цикл по оптимизации сглаживания
-    #for vibr in range(18,19): # при 10 - error - 1.801009
-    raw = del_outliers(raw, l_vibr=0.018, verh=0.0144, niz=0.0046) # сглаживание, убираем выбросы
-    # здесь должен начинаться цикл по количеству лагов
-    raw, train_col = build_lag(raw, 1) # создаем лаги
-    # здесь должен начинаться цикл перебирающий все комбинации из списка полей
-    train_col += ['state_i', 'proc_covill', 'pct_college', 'median_hh_inc', 'sp500', 'month']
-    znachenie = pd.DataFrame({'columns': train_col, 'importance': 0})
-    # возможные поля 'Population', 'proc_covdeat', 'pct_bb', 'pct_foreign_born', 'pct_it_workers', 'unemploy'
-    start_val = 10 # первый месяц валидации с которого проверяем модель
-    stop_val = 38 # последний месяц валидации до которого проверяем модель
-    # цикл по уникальным cfips и создание отдельных моделей для каждой cfips
-    for cfips in tqdm(raw.cfips.unique()):
-        start_time = datetime.now()  # время начала работы модели
-        # здесь начинаeтся цикл по перебору номера валидационного месяца до stop_val включительно
-        for mes_val in range(start_val, stop_val+1): # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
-            # здесь должен начинаться цикл по перебору номера первого месяца для трайна
-            mes_1 = 3
-            raw, znachenie = vsia_model_otdelno(raw, mes_1, mes_val, train_col, znachenie, cfips)
-        # валидация по результату обработки всех месяцев валидации в цикле
-        df = raw[raw['cfips'] == cfips]
-        rezult = validacia(df, start_val, stop_val, rezult, cfips, 'Forest')
-        x = rezult['error'].tail(1)
-        x.reset_index(drop=True, inplace=True)
-        raw.loc[raw['cfips'] == cfips, 'error_otdelno'] = x[0]
-        print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
-    raw['ypred_otdelno'] = raw['ypred']
-    rezult.to_csv("C:\\kaggle\\МикроБизнес\\rez_optim.csv", index=False)
-    raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_otdelno1.csv", index=False)
-    # здесь заканчиваются циклы оптимизации
-    print('Значимость колонок трайна в модели')
-    znachenie.sort_values(by='importance', ascending=False, inplace=True)
-    print(znachenie)
-    rezult.sort_values(by='dif_err', inplace=True)
-    #print(rezult.mean())
-    print(rezult.head(22))
-    return
-
-
 if __name__ == "__main__":
     # train, test = obrabotka_filtr.start()
     # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw2.csv", index=False)
     rezult = pd.DataFrame(columns=['lastactive','param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
-    # raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw0_cov_econ.csv")
+    #raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw0_cov_econ.csv")
     # glavnaia(raw, rezult)
-    # glavnaia_otdelno(raw, rezult)
 
     #raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_otdelno.csv")
 
-    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\rawy_no_blac.csv")
+    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
 
     raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
     raw['ypred'] = 0
-    #glavnaia(raw, rezult)
+    #glavnaia(raw, rezult) # 1.379034  0.010546  146.796656
     posle_sglashivfnia(raw, rezult)
