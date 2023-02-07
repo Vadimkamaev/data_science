@@ -35,8 +35,9 @@ def new_target(raw, param):
     raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
     raw['target'].fillna(0, inplace=True)
 
-    raw.loc[(raw['target'] < - 0.0054), 'target'] = - 0.0054
-    raw.loc[(raw['target'] > 0.0054), 'target'] = 0.0054 # 1.379034  0.010546  146.796656
+    porog = 0.0054
+    raw.loc[(raw['target'] < - porog), 'target'] = - porog
+    raw.loc[(raw['target'] > porog), 'target'] = porog # 1.379034  0.010546  146.796656
 
     # raw.loc[(raw['target'] > param), 'target'] = param
     # raw.loc[(raw['target'] < -param), 'target'] = -param
@@ -53,14 +54,15 @@ def build_lag(raw, param): #
     for lag in range(1, 12): # 1.379084  0.010497  146.812119
         raw[f'target_lag{lag}'] = raw.groupby('cfips')['target'].shift(lag)
         train_col.append(f'target_lag{lag}')
-    # создаем скользящие средние.
-    for i in [3, 4, 14, 17]:
-        nam = f'EMA_{i}'
-        EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
-        raw[nam] = EMA
-        train_col += [nam]
-    #создаем значения сумм окон для lag = 1
-    for i in [2]:
+    # # создаем скользящие средние.
+    # for i in [3, 4, 14, 17]:
+    # for i in [4]: # 1.736728 -0.004930  178.270746 без 1.736938 -0.005141  178.270746
+    #     nam = f'EMA_{i}'
+    #     EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
+    #     raw[nam] = EMA
+    #     train_col += [nam]
+    # #создаем значения сумм окон для lag = 1
+    for i in [param]: #без 1.736938 -0.005141  178.270746
         nam = f'roll_{i}'
         # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
         ROLL = raw.groupby('cfips')['target_lag1'].transform(lambda s: s.rolling(i, min_periods=1).sum())
@@ -160,6 +162,9 @@ def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, param=1):
     #raw.loc[(raw.dcount == mes_val)&(raw.istest == 0) , 'ypred_target'] = y_pred
     y_pred = y_pred + 1
     y_pred = raw.loc[raw.dcount == mes_val, 'mbd_lag1'] * y_pred
+
+
+
     #Предсказано иссдедуемой моделью. Ошибка SMAPE: 1.5717414657304203
     # сохраняем результат обработки одного цикла
     raw.loc[raw.dcount == mes_val, 'ypred'] = y_pred
@@ -249,11 +254,11 @@ def posle_sglashivfnia(raw, rezult, lastactive = 0):
     raw['ypred_target']=0
 
     # возможные поля 'Population', 'proc_covdeat', 'pct_bb', 'pct_foreign_born', 'pct_it_workers', 'unemploy'
-    start_val = 30  # первый месяц валидации с которого проверяем модель
+    start_val = 6  # первый месяц валидации с которого проверяем модель
     stop_val = 38  # последний месяц валидации до которого проверяем модель
 
     # цикл по оптимизируемому параметру модели
-    for param in range(2,3):
+    for param in range(2,12,1):
         # создаем новый таргет
         raw = new_target(raw, param/10000)
         raw, train_col = build_lag(raw, param)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
