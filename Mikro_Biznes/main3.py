@@ -69,7 +69,8 @@ def build_lag(raw): #
  #   raw['mbd_lag1'].fillna(method='bfill', inplace=True)
     # создаем 1 лаг 'active' - общее количество микропредприятий в округе
     raw['active_lag1'] = raw.groupby('cfips')['active'].shift(1)
-    train_col += ['mbd_lag1', 'active_lag1', 'median_hh_inc', 'month']
+    #train_col += ['mbd_lag1', 'active_lag1', 'median_hh_inc', 'month'] # 0.0 max 1.718904 0.012894 0.009300
+    train_col += ['mbd_lag1', 'active_lag1', 'median_hh_inc', 'month', 'dcount']
     return raw, train_col
 
 # получение трайна и 'y' (игрик) для модели, mes_1 - первый месяц с которого используем трайн для модели
@@ -118,7 +119,6 @@ def model2_otchet(raw, mes_1, mes_val):
     raw['error'] = vsmape(raw['microbusiness_density'], raw['y_inegr'])
     l = baz_otchet(raw, mes_1, mes_val)
     print('количство cfips предсказанных хуже чем моделью № 2 =', l)
-
 
 # вывод на печать информацию по качеству работы модели в каждом штате
 def print_state(raw, maska):
@@ -389,7 +389,11 @@ def post_model2(raw, y_pred, mes_val):
     maska0 = maska & (raw['better_pred'] == 0)
     maska1 = maska & (raw['better_pred'] == 1)
     raw.loc[maska0, 'y_inegr'] = raw.loc[maska0, 'mbd_lag1']
-    raw.loc[maska1, 'y_inegr'] = raw.loc[maska1, 'ypred']
+    #raw.loc[maska1, 'y_inegr'] = raw.loc[maska1, 'ypred']
+
+    # ТУПАЯ ПОДГОНКА
+    #k = 0.45 # 1.0883
+    #raw.loc[maska1, 'y_inegr'] = k * raw.loc[maska1, 'ypred'] + (1-k)*raw.loc[maska1, 'mbd_lag1']
 
     return raw
 
@@ -455,28 +459,21 @@ def model2_otvet(raw):
     test[['row_id', 'microbusiness_density']].to_csv('C:\\kaggle\\МикроБизнес\\model2.csv', index=False)
 
 if __name__ == "__main__":
-    minimum = 220
+    minimum = 60
     pd.options.display.width = 0
     # train, test = start()
     # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw2.csv", index=False)
     rezult = pd.DataFrame(columns=['lastactive','param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
 
-
     raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
     raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
     raw['ypred'] = 0
 
-    #init_segmentacii(raw)
-    # sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv") #хуже чем моделью = 723
-    # raw = vse_fragmenti(raw, rezult, minimum, sedmenti)
-    # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli.csv", index=False)
-    # otvet(raw)
+    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno3.csv") #хуже чем моделью = 706
+    raw = vse_fragmenti(raw, rezult, minimum, sedmenti)
+    raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli3.csv", index=False)
+    otvet(raw)
 
-    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli.csv")
+    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli3.csv")
     variant_modeli(raw, minimum)
     model2_otvet(raw)
-
-
-
-
-

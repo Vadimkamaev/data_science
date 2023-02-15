@@ -35,11 +35,11 @@ def new_target(raw, param=0.0054):
     raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
     raw['target'].fillna(0, inplace=True)
 
-    raw.loc[(raw['target'] < - 0.0054), 'target'] = - 0.0054
-    raw.loc[(raw['target'] > 0.0054), 'target'] = 0.0054 # 2.18317 -0.026207
+    # raw.loc[(raw['target'] < - 0.0075), 'target'] = - 0.0075 # 1.403375  0.015754     0.001878
+    # raw.loc[(raw['target'] > 0.0075), 'target'] = 0.0075 #
 
-    # raw.loc[(raw['target'] > param), 'target'] = param
-    # raw.loc[(raw['target'] < -param), 'target'] = -param
+    raw.loc[(raw['target'] > param), 'target'] = param
+    raw.loc[(raw['target'] < -param), 'target'] = -param
 
     # в этих 'cfips' значение 'active' аномально маленькие
     raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
@@ -96,8 +96,8 @@ def mace_blac_list(raw, mes_1, mes_val, blac_cfips, param=-1):
     # Признак отправления в блек лист
     blec_maska = (df_dt['miss'] >= 0.5) # от 0.5 (большой блек) до 1 (малый блек) Проблема на 1-м месяце исключит всех
     df_dt.sort_values(by='lastactive', inplace=True)
-    shad = 40
-    for lastactive in range(30, 800, shad):
+    shad = 10
+    for lastactive in range(30, 180, shad):
         maska = (df_dt['lastactive']>lastactive)&(df_dt['lastactive']<=lastactive+shad)
         horoshie = df_dt[~blec_maska&maska].count()['lastactive']
         vsego = df_dt[maska].count()['lastactive']
@@ -279,66 +279,51 @@ def new_cfips(raw, lastactive, max_cfips, kol = 2):
 def posle_sglashivfnia(raw, rezult):
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     # создаем блек-лист cfips которых не используем в тесте
-    #min_int = 60; max_int = 100 #lastactive = 10142 error 2.125946 -0.019663     0.005498
-    #min_int = 100; max_int = 140 #lastactive = 6000 error 1.853605 -0.006954     0.004485
-    #min_int = 140; max_int = 190 #lastactive = 6690 error 1.744299 -0.000703     0.004817
-    #min_int = 190; max_int = 230 #lastactive = 9690 error 1.394248  0.007670     0.009076
-    #min_int = 230; max_int = 300 #lastactive = 16500 error 1.519239  0.010882     0.004581
-    #min_int = 300; max_int = 500 #lastactive =17500  error 1.222168  0.007713     0.001428
-    #min_int = 500; max_int = 1000 #lastactive =1500  error 1.065339  0.018434     0.003156
-    #min_int = 1000; max_int = 2000 #lastactive = 2000 error 1.025943  0.027024     0.004030
-    #min_int = 2000; max_int = 4000 #lastactive = 4500 error 0.909389  0.034093     0.004325
-    #min_int = 4000; max_int = 8000 #lastactive = 9500 error 0.858602  0.054814     0.003971
-    #min_int = 8000; max_int = 16000 #lastactive = 7200 error 0.701923  0.072343    0.005001
-    #min_int = 16000; max_int = 32000 #lastactive = 15000 error 0.861022  0.081539     0.008299
-    #min_int = 32000; max_int = 64000 #lastactive = 64000 error 0.751408  0.082716     0.006263
-    #min_int = 22000; max_int = бескон. #lastactive = 20590
     min_int = 120
-    max_int = 1000000000000
+    max_int = 160
     blac_test_cfips = raw.loc[(raw['lastactive'] < min_int) | (raw['lastactive'] >= max_int), 'cfips']
     blac_test_cfips = blac_test_cfips.unique()
     max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
-    for state_i in [45]: # при 0 и min_int = 140 удаление элементов негативно при min_int = 22000 тоже не очень
-        for param in [1]: #1.403340  0.015789   144.360897
-            for lastactive in range(120,121,90): # при 30 - 1.404981  0.014148     0.000272
-                #max_active = 5730679879807890879767
-                #param = 1
-                #lastactive = -1
-                # raw = raw[raw['cfips'] <= max_cfips]
-                # создаем блек-лист cfips который не нужен в трайне
-                # if lastactive >= max_int:
-                #     maska = (raw['lastactive'] < min_int)|((raw['lastactive'] > max_int)&
-                #                                            (raw['lastactive'] < lastactive))
-                # elif lastactive <= min_int:
-                #     maska = (raw['lastactive'] < lastactive)
-                # else:
-                #     print('Чо за ерунда?')
+    param =54 #
+    for lastactive in range(33,34,90): # при 30 - 1.404981  0.014148     0.000272
+        #max_active = 5730679879807890879767
+        #param = 1
+        #lastactive = -1
+        # raw = raw[raw['cfips'] <= max_cfips]
+        # создаем блек-лист cfips который не нужен в трайне
+        # if lastactive >= max_int:
+        #     maska = (raw['lastactive'] < min_int)|((raw['lastactive'] > max_int)&
+        #                                            (raw['lastactive'] < lastactive))
+        # elif lastactive <= min_int:
+        #     maska = (raw['lastactive'] < lastactive)
+        # else:
+        #     print('Чо за ерунда?')
 
-                maska = (raw['lastactive'] < lastactive)#&(raw['state_i'] == state_i)
+        maska = (raw['lastactive'] < lastactive)
 
-                blac_cfips = raw.loc[maska, 'cfips'] # убираем из трайна
-                blac_cfips = blac_cfips.unique()
-                # создаем гибриды из cfips для трайна
-                # raw = new_cfips(raw, lastactive, max_cfips)
-                raw = new_target(raw,1)# param/10000)
-                raw, train_col = build_lag(raw, param)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
-                start_val = 6  # первый месяц валидации с которого проверяем модель
-                stop_val = 38  # последний месяц валидации до которого проверяем модель
+        blac_cfips = raw.loc[maska, 'cfips'] # убираем из трайна
+        blac_cfips = blac_cfips.unique()
+        # создаем гибриды из cfips для трайна
+        # raw = new_cfips(raw, lastactive, max_cfips)
+        raw = new_target(raw,param/10000)
+        raw, train_col = build_lag(raw, param)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
+        start_val = 6  # первый месяц валидации с которого проверяем модель
+        stop_val = 38  # последний месяц валидации до которого проверяем модель
 
-                #модель без блек листа
-                # raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, [])
-                # raw['y_no_blac'] = raw['ypred']
-                # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv", index=False)
+        #модель без блек листа
+        # raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, [])
+        # raw['y_no_blac'] = raw['ypred']
+        # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv", index=False)
 
-                # валидация по результату обработки всех месяцев валидации в цикле
-                raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
-                rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, lastactive, param, state_i)
-                # print('Сортировка по dif_no_blac')
-                # rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
-                # print(rezult.head(22))
-                print('Сортировка по dif_err')
-                rezult.sort_values(by='dif_err', inplace=True, ascending=False)
-                print(rezult.head(22))
+        # валидация по результату обработки всех месяцев валидации в цикле
+        raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
+        rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, lastactive, param, 0)
+        # print('Сортировка по dif_no_blac')
+        # rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
+        # print(rezult.head(22))
+        print('Сортировка по dif_err')
+        rezult.sort_values(by='dif_err', inplace=True, ascending=False)
+        print(rezult.head(22))
 
 
 # МОДЕЛЬ.

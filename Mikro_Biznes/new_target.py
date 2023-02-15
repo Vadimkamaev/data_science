@@ -55,12 +55,11 @@ def build_lag(raw, param): #
         raw[f'target_lag{lag}'] = raw.groupby('cfips')['target'].shift(lag)
         train_col.append(f'target_lag{lag}')
     # # создаем скользящие средние.
-    # for i in [3, 4, 14, 17]:
-    # for i in [4]: # 1.736728 -0.004930  178.270746 без 1.736938 -0.005141  178.270746
-    #     nam = f'EMA_{i}'
-    #     EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
-    #     raw[nam] = EMA
-    #     train_col += [nam]
+    for i in [3, 4, 14, 17]:
+        nam = f'EMA_{i}'
+        EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
+        raw[nam] = EMA
+        train_col += [nam]
     # #создаем значения сумм окон для lag = 1
     for i in [param]: #без 1.736938 -0.005141  178.270746
         nam = f'roll_{i}'

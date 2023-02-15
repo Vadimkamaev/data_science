@@ -230,47 +230,6 @@ def modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips):
     # print(znachenie)
     return raw, blac_cfips
 
-# после сглаживания
-def posle_sglashivfnia(raw, rezult):
-    # 'lastactive' содержит значение 'active' одинаковое для всех строк с одним 'cfips'
-    # и равное 'active' за последний месяц (сейчас 2022-10-01)
-    raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-
-    # создаем блек-лист cfips которых не используем в тесте
-    blac_test_cfips = raw.loc[(raw['lastactive'] < 600)|(raw['lastactive'] >= 1300), 'cfips']
-    #blac_test_cfips = raw.loc[(raw['lastactive'] < 50), 'cfips']
-    blac_test_cfips = blac_test_cfips.unique()
-    for kol in [2]:
-        for max_active in [1000000000000,5500,15200,20250] + list(range(16000,30000,1000)): # 1.110824 -0.061638     0.051209
-            for param in range(0,1,5):
-                #max_active = 20250000000000000000
-                param = max_active
-                lastactive = 70
-                # создаем блек-лист cfips который не нужен в трайне  1.997686 -0.152959     0.082025
-                maska = (raw['lastactive']>max_active)|(raw['lastactive']<=lastactive)
-                blac_cfips = raw.loc[maska, 'cfips'] # оптимально с lastactive до 32 убираем из трайна
-                blac_cfips = blac_cfips.unique()
-
-                # здесь должен начинаться цикл по количеству лагов
-                raw, train_col = build_lag(raw)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
-                # здесь должен начинаться цикл перебирающий все комбинации из списка полей
-                train_col += ['state_i', 'proc_covill', 'pct_college', 'median_hh_inc', 'sp500', 'month']
-
-                # возможные поля 'Population', 'proc_covdeat', 'pct_bb', 'pct_foreign_born', 'pct_it_workers', 'unemploy'
-                start_val = 30  # первый месяц валидации с которого проверяем модель
-                stop_val = 38  # последний месяц валидации до которого проверяем модель
-                # валидация по результату обработки всех месяцев валидации в цикле
-                raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
-                rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, lastactive, param, kol)
-        # здесь заканчиваются циклы оптимизации
-        #rezult.to_csv("C:\\kaggle\\МикроБизнес\\rez_optim1.csv", index=False)
-                print('Сортировка по dif_no_blac')
-                rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
-                print(rezult.head(22))
-                # print('Сортировка по dif_err')
-                # rezult.sort_values(by='dif_err', inplace=True, ascending=False)
-                # print(rezult.head(22))
-
 # определяем ошибку модели для сегмента cfips с lastactive в интервале от mini до maxi
 # при параметрах min_type=0, min_blac=-1, max_blac=0 определяющих блек лист
 def serch_error(raw, rezult, mini, maxi, lastactive, param=0.0054):
@@ -313,7 +272,7 @@ def serch_error(raw, rezult, mini, maxi, lastactive, param=0.0054):
 # оптимизируем сегмент cfips в интервале от mini до maxi
 # составляем список из 5 лучших возможных lastactive
 def serch_lastactive(raw, mini, maxi, rezult):
-    potolok = mini # максимальное значение искомого параметра - lastactive
+    potolok = 22000#mini # максимальное значение искомого параметра - lastactive
     lastactive = -1#mini
     error, rezult = serch_error(raw, rezult, mini, maxi, lastactive)
     # создаем датафрейм для хранения лучших результатов
@@ -373,9 +332,9 @@ def serch_lastactive(raw, mini, maxi, rezult):
     return lastactive, rezult # возвращаем лучший lastactive
 
 def serch_param(raw, lastactive, mini, maxi, rezult):
-    minint = 22
-    maxint = 189
-    shag = 32
+    minint = 20
+    maxint = 120
+    shag = 30
     minerror = 1000
     ideal_param = 54
     sort2_param = 22
@@ -391,7 +350,7 @@ def serch_param(raw, lastactive, mini, maxi, rezult):
                 sort2_param = ideal_param
                 ideal_param = param
         shag = shag // 2
-        spisok = [ideal_param-shag, ideal_param+shag, sort2_param+shag]
+        spisok = [ideal_param-shag, ideal_param+shag]
         if sort2_param-shag != ideal_param+shag:
             spisok = spisok + [sort2_param-shag]
         if sort2_param+shag != ideal_param-shag:
@@ -431,7 +390,7 @@ def print_sedmenti(sedmenti):
 def optimizacia_segmentacii(raw, rezult):
     versia = 1
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv")
+    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv")
     df = sedmenti[(sedmenti['versia'] == versia)&(sedmenti['optim'] == 0)]
     for ind, row in df.iterrows(): # цикл по датафрейму сегменты
         # оптимизация отдельного сегмента
@@ -443,14 +402,15 @@ def optimizacia_segmentacii(raw, rezult):
         sedmenti.loc[ind, 'dif_err'] = dif_err
         sedmenti.loc[ind, 'dif_no_blac'] = dif_no_blac
         sedmenti.loc[ind, 'optim'] = 1
-        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv", index=False)
+        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv", index=False)
+        rezult = pd.DataFrame(columns=['lastactive', 'param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
     print_sedmenti(sedmenti)
 
 # оптимизируем все param определенной версии в датафрейме sedmenti
 def optimizacia_param(raw, rezult):
     versia = 1
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv")
+    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv")
     df = sedmenti[(sedmenti['versia'] == versia)&(sedmenti['optim'] == 1)]
     for ind, row in df.iterrows(): # цикл по датафрейму сегменты
         # оптимизация отдельного сегмента
@@ -472,7 +432,8 @@ def optimizacia_param(raw, rezult):
         sedmenti.loc[ind, 'dif_err'] = dif_err
         sedmenti.loc[ind, 'dif_no_blac'] = dif_no_blac
         sedmenti.loc[ind, 'optim'] = 2
-        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv", index=False)
+        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv", index=False)
+        rezult = pd.DataFrame(columns=['lastactive', 'param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
     print_sedmenti(sedmenti)
 
 # подсчет количества элементов в каждом сегменте и запись его в датафрейм sedmenti
@@ -490,7 +451,7 @@ def kol_in_sedmenti(raw, sedmenti, versia):
 
 # создание датафрейма sedmenti и сохранение его в файл
 def init_segmentacii(raw):
-    granici =[120, 160, 220, 300, 400, 550, 750, 1050, 1450, 2300, 4000, 8000, 22000]
+    granici =[60, 90, 120, 160, 220, 300, 400, 550, 750, 1050, 1450, 2300, 4000, 8000, 22000]
     versia = 1
     d = {'versia':versia,  #возможно несколько версий разбиения в процессе оптимизации
          'min': granici, # 'lastactive' >= 'min'
@@ -506,7 +467,7 @@ def init_segmentacii(raw):
     sedmenti = pd.DataFrame(d)
     sedmenti = kol_in_sedmenti(raw, sedmenti, versia)
     print_sedmenti(sedmenti)
-    sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv", index=False)
+    sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv", index=False)
 
 # создание raw с предсказаниями без блек листов с использованием в трайне всех cfips
 def no_blec_vse_cfips(raw, rezult):
@@ -526,26 +487,17 @@ def no_blec_vse_cfips(raw, rezult):
     rezult.sort_values(by='dif_no_blac', inplace=True, ascending=False)
     print(rezult.head(22))
 
-# МОДЕЛЬ.
-def glavnaia(raw, rezult):
-    raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
-    raw['median_hh_inc'] = raw.groupby('cfips')['median_hh_inc'].ffill()
-    raw['ypred'] = 0
-    posle_sglashivfnia(raw, rezult)
-
 if __name__ == "__main__":
     pd.options.display.width = 0
     # train, test = start()
     # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw2.csv", index=False)
     rezult = pd.DataFrame(columns=['lastactive','param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
     # raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw0_cov_econ.csv")
-    # glavnaia(raw, rezult)
-    #raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_otdelno.csv")
 
     raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
     raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
     raw['ypred'] = 0
-    # init_segmentacii(raw)
-    # optimizacia_segmentacii(raw, rezult)
+    #init_segmentacii(raw)
+    #optimizacia_segmentacii(raw, rezult)
     optimizacia_param(raw, rezult)
 
