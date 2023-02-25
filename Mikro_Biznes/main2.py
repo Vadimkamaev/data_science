@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from servise_ds import okno
 import obrabotka_filtr
+from scipy.optimize import Bounds, minimize
 
 # загрузка данных
 def start():
@@ -46,14 +47,12 @@ def new_target(raw, param):
     raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
     raw['target'].fillna(0, inplace=True)
 
-    # raw.loc[(raw['target'] < - 0.0054), 'target'] = - 0.0054
-    # raw.loc[(raw['target'] > 0.0054), 'target'] = 0.0054 #
+    # raw.loc[(raw['target'] < - 0.0074), 'target'] = - 0.0074
+    # raw.loc[(raw['target'] > 0.0074), 'target'] = 0.0074  #
+    #param = 0.0045
     raw.loc[(raw['target'] > param), 'target'] = param
     raw.loc[(raw['target'] < -param), 'target'] = -param
 
-    # в этих 'cfips' значение 'active' аномально маленькие
-    raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
-    raw.loc[raw['cfips'] == 48269, 'target'] = 0.0
     return raw
 
 # создание лагов
@@ -98,7 +97,11 @@ def baz_otchet(raw, mes_1, mes_val):
     dt['miss'] = dt['error'] > dt['error_last'] # ошибка модели > ошибки модели '='
     seria_dt = dt.groupby('cfips')['miss'].mean()
     seria_dt = seria_dt.loc[seria_dt>=0.50] # оставляем только те, где ['miss'].mean() >= 0.5
-    return len(seria_dt)
+
+    hor = (raw['error_last'] < raw['error']).sum()
+    ploh = (raw['error'] < raw['error_last']).sum()
+
+    return len(seria_dt), ploh/hor
 
 # считаем сколько предсказаний лучше после 1-й модели
 def otchet(raw, mes_1, mes_val):
@@ -110,19 +113,23 @@ def otchet(raw, mes_1, mes_val):
     raw['trend_ok'] = 0
     maska = (raw['ypred'] >= raw['mbd_lag1']) & (raw['microbusiness_density'] >= raw['mbd_lag1'])
     raw.loc[maska, 'trend_ok'] = 1
+
     maska = (raw['ypred'] <= raw['mbd_lag1']) & (raw['microbusiness_density'] <= raw['mbd_lag1'])
     raw.loc[maska, 'trend_ok'] = 1
-    l = baz_otchet(raw, mes_1, mes_val)
-    print('количство cfips предсказанных хуже чем моделью =', l)
+    l, ph = baz_otchet(raw, mes_1, mes_val)
+    print('количство cfips предсказанных хуже чем моделью =', l,
+          'Отношение плохих предсказаний к хорошим', ph)
 
 # считаем сколько предсказаний лучше после 2-й модели
 def model2_otchet(raw, mes_1, mes_val):
     raw['error'] = vsmape(raw['microbusiness_density'], raw['ypred'])
-    l = baz_otchet(raw, mes_1, mes_val)
-    print('количство cfips предсказанных хуже чем моделью № 1 =', l)
+    l, ph = baz_otchet(raw, mes_1, mes_val)
+    print('количство cfips предсказанных хуже чем моделью № 1 =', l,
+          'Отношение плохих предсказаний к хорошим', ph)
     raw['error'] = vsmape(raw['microbusiness_density'], raw['y_inegr'])
-    l = baz_otchet(raw, mes_1, mes_val)
-    print('количство cfips предсказанных хуже чем моделью № 2 =', l)
+    l, ph = baz_otchet(raw, mes_1, mes_val)
+    print('количство cfips предсказанных хуже чем моделью № 2 =', l,
+          'Отношение плохих предсказаний к хорошим', ph)
 
 # вывод на печать информацию по качеству работы модели в каждом штате
 def print_state(raw, maska):
@@ -154,26 +161,34 @@ def print_month(raw, maska):
     #df_state.sort_values(by='diff_err', inplace=True)
     print(df_state.head(53))
 
+# тагрет для проверки модели. Убираем из проверки выбросы более чем granica
+def target_for_error(raw, maska):
+    granica = 0.2
+    target = raw.loc[maska, 'microbusiness_density']
+    m = raw['microbusiness_density'] > (1 + granica) * raw['mbd_lag1']
+    target.loc[m] = raw.loc[maska & m, 'mbd_lag1'] * (1 + granica)
+    m = raw['microbusiness_density'] < (1 - granica) * raw['mbd_lag1']
+    target.loc[m] = raw.loc[maska & m, 'mbd_lag1'] * (1 - granica)
+    return target
+
 # Валидация
 def validacia(raw, start_val, stop_val, rezult, blac_test_cfips, param1=1, param2=1, param3=1):
     # маска при которой была валидация и по которой сверяем ошибки
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (~raw['cfips'].isin(blac_test_cfips))
-    target = raw.loc[maska, 'microbusiness_density']
+    target = target_for_error(raw, maska)
     ypred = raw.loc[maska, 'ypred']
     err_mod = smape(target, ypred)
-    #print('Предсказано иссдедуемой моделью. Ошибка SMAPE:',err_mod)
+
     mbd_lag1 = raw.loc[maska, 'mbd_lag1']
     err_last = smape(target, mbd_lag1)
-    #print('Равенство последнему значению. Ошибка SMAPE:', err_last)
 
     y_no_blac = raw.loc[maska, 'y_no_blac']
     err_y_no_blac = smape(target, y_no_blac)
-    #print('Без блек листа. Ошибка SMAPE:', err_y_no_blac)
 
     dif_err = err_last - err_mod # положительная - хорошо
     dif_no_blac = err_y_no_blac - err_mod # положительная - хорошо
     rezult.loc[len(rezult.index)] = [param1, param2, param3, err_mod, dif_err, dif_no_blac]
-    # print_state(raw, maska)
+
     print('Предсказано иссдедуемой моделью. Ошибка SMAPE:', err_mod)
     print('Разность ошибок (чем больше, тем лучше):', dif_err)
     print('Разность с Без блек листа (чем больше, тем лучше):', dif_no_blac)
@@ -206,9 +221,10 @@ def vsia_model(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0):
 
 # формирование колонки 'ypred' по результатам 1-го процесса оптимизации
 def post_model(raw, y_pred, mes_val, blac_test_cfips):
+    mask = raw.dcount == mes_val
     # преобразовываем target в 'microbusiness_density'
     y_pred = y_pred + 1
-    y_pred = raw.loc[raw.dcount == mes_val, 'mbd_lag1'] * y_pred
+    y_pred = raw.loc[mask, 'mbd_lag1'] * y_pred
     # сохраняем результат обработки одного цикла
     maska =(~raw['cfips'].isin(blac_test_cfips))&(raw.dcount == mes_val)
     raw.loc[maska, 'ypred'] = y_pred
@@ -216,7 +232,6 @@ def post_model(raw, y_pred, mes_val, blac_test_cfips):
 
 # помесячная оптимизация в 1-м процессе
 def modeli_po_mesiacam(raw, start_val, stop_model, train_col, blac_cfips, blac_test_cfips):
-    start_time = datetime.now()  # время начала работы модели
     znachenie = pd.DataFrame({'columns': train_col, 'importance': 0})
     # c start_val начинаeтся цикл по перебору номера валидационного месяца до stop_val включительно
     for mes_val in tqdm(range(start_val, stop_model + 1)):  # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
@@ -225,7 +240,6 @@ def modeli_po_mesiacam(raw, start_val, stop_model, train_col, blac_cfips, blac_t
         y_pred, znachenie = vsia_model(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0)
         raw = post_model(raw, y_pred, mes_val, blac_test_cfips)
     #otchet(raw, start_val, mes_val)
-    #print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
     # print('Значимость колонок трайна в модели')
     # znachenie.sort_values(by='importance', ascending=False, inplace=True)
     # print(znachenie)
@@ -278,7 +292,7 @@ def print_segmenti(segmenti):
 
 # для данных с 'lastactive' < minimum делаем предсказание что 'microbusiness_density' не изменилось
 def segment_minimum(raw, minimum):
-    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    # raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
     raw.loc[raw['lastactive']<minimum, 'ypred']=raw['mbd_lag1']
     raw['ypred'].fillna(0, inplace=True)
     return raw
@@ -289,6 +303,7 @@ def one_fragment(raw, rezult, segmenti, ind, start_val, stop_model, stop_val):
     mini = segmenti.loc[ind, 'min']
     maxi = segmenti.loc[ind, 'max']
     param = segmenti.loc[ind, 'param']
+    print ('Обрабатываем фрагмент от', mini, 'до', maxi)
     if maxi > 1:
         blac_test_cfips, rezult = serch_error(raw, rezult, mini, maxi, lastactive, start_val, stop_model, param)
         # валидация по результату обработки всех месяцев валидации в цикле
@@ -300,7 +315,7 @@ def one_fragment(raw, rezult, segmenti, ind, start_val, stop_model, stop_val):
     return rezult
 
 # предсказываем для всех сегментов в датафрейме segmenti
-def vse_fragmenti(raw, rezult, minimum, segmenti):
+def model1_vse_fragmenti(raw, rezult, minimum, segmenti):
     #metod = 1 # способ оптимизации
     versia = 1
     start_val = 6  # первый месяц валидации с которого проверяем модель
@@ -313,6 +328,7 @@ def vse_fragmenti(raw, rezult, minimum, segmenti):
         rezult = one_fragment(raw, rezult, segmenti, ind, start_val, stop_model, stop_val)
     raw = segment_minimum(raw, minimum)
     blac_test_cfips = []
+    print('')
     print('Результаты по всей базе')
     rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, 0, 0, 'max')
     otchet(raw, start_val, stop_val)
@@ -376,7 +392,7 @@ def vsia_model2(raw, mes_1, mes_val, train_col, minimum, param=0):
     # получение х_тест и y_тест
     X_test, y_test = x_and_y_test(raw, mes_val, train_col)
     model = xgb.XGBRegressor(
-        tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
+        #tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
         n_estimators=850,
         learning_rate=0.009, #важная штука 1.637233  0.000974  0.012788
         # max_depth=8, этот вариант лучше чем max_leaves=17 но в 2 раза дольше.
@@ -395,7 +411,7 @@ def vsia_model2(raw, mes_1, mes_val, train_col, minimum, param=0):
 def model2_validacia(raw, start_val, stop_val, rezult, param1=1, param2=1, param3=1):
     # маска при которой была валидация и по которой сверяем ошибки
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val)
-    target = raw.loc[maska, 'microbusiness_density']
+    target = target_for_error(raw, maska)
     ypred = raw.loc[maska, 'ypred']
     err_1mod = smape(target, ypred)
 
@@ -421,11 +437,19 @@ def model2_validacia(raw, start_val, stop_val, rezult, param1=1, param2=1, param
 def post_variant_model(raw, start_val, stop_model, param):
     # сохраняем результат обработки одного цикла
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_model)
-    mas0 = (raw['better_pred'] < 0.41)
-    maska0 = maska & mas0
-    maska1 = maska & (~mas0)
-    raw.loc[maska0, 'y_inegr'] = raw.loc[maska0, 'mbd_lag1']*0.4 + raw.loc[maska0, 'ypred']*0.6
-    raw.loc[maska1, 'y_inegr'] = raw.loc[maska1, 'ypred']
+    # mas0 = (raw['better_pred'] < 0.41)
+    # maska0 = maska & mas0
+    # maska1 = maska & (~mas0)
+    # raw.loc[maska0, 'y_inegr'] = raw.loc[maska0, 'mbd_lag1']*0.4 + raw.loc[maska0, 'ypred']*0.6
+    # raw.loc[maska1, 'y_inegr'] = raw.loc[maska1, 'ypred']
+    l=500
+    m=-0.6
+    k = raw.loc[maska, 'lastactive']/l + m
+    fig = (raw.loc[maska, 'better_pred']+k).clip(0,1)
+    #raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'mbd_lag1'] * (1-fig) + raw.loc[maska, 'ypred'] * fig
+    maska = maska & (raw.y_inegr != raw.mbd_lag1)
+    raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'mbd_lag1'] * (1 - fig) + raw.loc[maska, 'y_inegr'] * fig
+
     return raw
 
 # помесячное предсказание какая из моделей лучше
@@ -460,11 +484,12 @@ def variant_model(raw, minimum):
 
 # Оптимизация результатов 1-й модели, по результатам модели trend_ok_model (тестовая, не обязательная функция)
 # можно удалить в окончательном варианте, т.к. заменяется в main_post_model
-def trend_ok_post_model(raw, start_val, stop_model, param):
+def trend_ok_post_model(raw, start_val, stop_model, param1, param2):
     # сохраняем результат обработки одного цикла
     maska =(raw.dcount >= start_val)&(raw.dcount <= stop_model)
     raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'ypred']
-    mas0 = (raw['trend_ok_pred'] < 0.5)&(raw['lastactive'] < 910)
+    # mas0 = (raw['trend_ok_pred'] < 0.5)&(raw['lastactive'] < 910)
+    mas0 = (raw['trend_ok_pred']*param1 + raw['lastactive']) < param2
     maska0 = maska & mas0
     raw.loc[maska0, 'y_inegr'] = raw.loc[maska0, 'mbd_lag1']
     return raw
@@ -480,20 +505,52 @@ def trend_ok_po_mesiacam(raw, start_val, stop_model, train_col, minimum, param):
         raw.loc[maska, 'trend_ok_pred'] = y_pred
     return raw
 
+# ошибка 2-й модели
+def model2_error(raw, start_val, stop_val):
+    # маска при которой была валидация и по которой сверяем ошибки
+    maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val)
+    target = target_for_error(raw, maska)
+    y_inegr = raw.loc[maska, 'y_inegr']
+    error = smape(target, y_inegr)
+    return error
+
+# функция, которая оптимизируется
+def optim(param, raw, start_val, stop_val, stop_model):
+    param1 = param[0]
+    param2 = param[1]
+    trend_ok_post_model(raw, start_val, stop_model, param1, param2)
+    r = model2_error(raw, start_val, stop_val)
+    return r
+
+def min_err_trend(raw, start_val, stop_val, stop_model):
+    mi_err = 10000
+    mirezx =[100,100]
+    for i in range(100, 800, 50):
+        for j in range(100, 800, 50):
+            res = minimize(optim, np.array([i, j]),
+                           args=(raw, start_val, stop_val, stop_model), method='Nelder-Mead')
+            error = optim(res.x, raw, start_val, stop_val, stop_model)
+            if mi_err > error:
+                mirezx = res.x
+                mi_err = error
+    return mirezx
+
 # модель предсказывающая правильно ли предсказан тренд в 1-й модели
 def trend_ok_model(raw, minimum):
     start_val = 10  # первый месяц валидации с которого проверяем модель
     stop_model = 39 # последний месяц до которого работает модель, включая месяцы теста
     stop_val = 38  # последний месяц валидации до которого проверяем модель
     rezult = pd.DataFrame(columns=['lastactive', 'param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
-    validacia(raw, start_val, stop_val, rezult, [], 0, 0, 0)
+    # validacia(raw, start_val, stop_val, rezult, [], 0, 0, 0)
     rezult = pd.DataFrame(columns=['param1', 'param2', 'param3', 'err_2mod', 'dif_err_1mod', 'dif_err_last_mod'])
     raw['trend_ok_pred']=0
     raw['target']=raw['trend_ok']
-    for param in range(1,1,1):
+    for param in range(1,2,1):
         raw, train_col = model2_build_lag(raw, param)
         raw = trend_ok_po_mesiacam(raw, start_val, stop_model, train_col, minimum, param)
-        raw = trend_ok_post_model(raw, start_val, stop_model, param)
+        error = optim([240, 400], raw, start_val, stop_val, stop_model)
+        print('error optim', error)
+        # raw = trend_ok_post_model(raw, start_val, stop_model, param)
         rezult = model2_validacia(raw, start_val, stop_val, rezult, param)
         print('Сортировка по err_2mod')
         rezult.sort_values(by='err_2mod', inplace=True, ascending=True)
@@ -632,26 +689,30 @@ def work_state(raw, df_state, minimum, start_val, stop_model, stop_val):
     print(rezult.head(22))
 
 # Выбор какую из моделей в каком случае применять на основе
-def main_post_model(raw, minimum):
+def main_post_model(raw, minimum, N_modeli):
     start_val = 10  # первый месяц валидации с которого проверяем модель
     stop_model = 39 # последний месяц до которого работает модель, включая месяцы теста
     stop_val = 38  # последний месяц валидации до которого проверяем модель
 
     # БЛОК ОПТИМИЗАЦИИ ПОСТ-МОДЕЛИ С ФОМИРОВАНИЕМ df_state
+    # оптимизация для 'trend_ok_pred' более или менее 0.5
+    df_state = pd.DataFrame(columns=['state', 'granica', 'trend05', 'trend03',  'gran_miks', 'error'])
+    trend05_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
+    df_state.to_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv", index=False)
 
-    # df_state = pd.DataFrame(columns=['state', 'granica', 'trend05', 'trend03',  'gran_miks', 'error'])
-    # trend05_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
-    # df_state.to_csv("C:\\kaggle\\МикроБизнес\\state.csv", index=False)
+    # оптимизация для нижней границы применимости первой модели
+    df_state = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv")
+    granica_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
+    df_state.to_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv", index=False)
 
-    # df_state = pd.read_csv("C:\\kaggle\\МикроБизнес\\state.csv")
-    # granica_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
-    # df_state.to_csv("C:\\kaggle\\МикроБизнес\\state.csv", index=False)
+    # оптимизация для 'trend_ok_pred' более или менее 0.3
+    df_state = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv")
+    trend03_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
+    df_state.to_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv", index=False)
 
-    # df_state = pd.read_csv("C:\\kaggle\\МикроБизнес\\state.csv")
-    # trend03_post_model(raw, df_state, minimum, start_val, stop_model, stop_val)
-    # df_state.to_csv("C:\\kaggle\\МикроБизнес\\state.csv", index=False)
-
-    df_state = pd.read_csv("C:\\kaggle\\МикроБизнес\\state.csv")
+    # исполнение модели
+    #df_state = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\state.csv")
+    df_state = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\state{N_modeli}.csv")
     work_state(raw, df_state, minimum, start_val, stop_model, stop_val)
 
     model2_otchet(raw, start_val, stop_val)
@@ -669,6 +730,8 @@ def model2_otvet(raw):
     test[['row_id', 'microbusiness_density']].to_csv('C:\\kaggle\\МикроБизнес\\model2.csv', index=False)
 
 if __name__ == "__main__":
+    start_time = datetime.now()  # время начала работы модели
+    N_modeli = 1
     minimum = 60 # ниже этого значения 'lastactive' считаем что 'microbusiness_density' не меняется
     pd.options.display.width = 0 # для печати
     # train, test = start()
@@ -678,32 +741,34 @@ if __name__ == "__main__":
     rezult = pd.DataFrame(columns=['lastactive','param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
 
     # ЗАГРУЗКА ДАННЫХ
-    # raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
-    # raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
-    # raw['ypred'] = 0
-
-    # ПЕРВЫЙ ПРОЦЕСС ОПТИМИЗАЦИИ
-    # segmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno2.csv")
-    # raw = vse_fragmenti(raw, rezult, minimum, segmenti) # первая модель
-    # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli2.csv", index=False)
+    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
+    raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
+    raw['ypred'] = 0
+    #
+    # # ПЕРВЫЙ ПРОЦЕСС ОПТИМИЗАЦИИ
+    # segmenti = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\targ_diskretno{N_modeli}.csv")
+    # raw = model1_vse_fragmenti(raw, rezult, minimum, segmenti) # первая модель
+    # raw.to_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle1modeli{N_modeli}.csv", index=False)
     # otvet(raw)
 
-    # МОДЕЛЬ ПРЕДСКАЗЫВАЮЩАЯ какое предсказание лучше 1-й модели или модели не изменения 'microbusiness_density'
-    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli2.csv")
-    raw['y_inegr'] = 0
-    variant_model(raw, minimum) #модель предсказывающая ошибку определения тренда первой моделью
-    raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_posle2modeli.csv", index=False)
-
     # МОДЕЛЬ ПРЕДСКАЗЫВАЮЩАЯ правильно ли предсказан тренд в 1-й модели
-    # raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_posle1modeli2.csv")
+    raw = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle1modeli{N_modeli}.csv")
+    raw['y_inegr'] = 0
+    trend_ok_model(raw, minimum) #модель предсказывающая ошибку определения тренда первой моделью
+    raw.to_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle2modeli{N_modeli}.csv", index=False)
+
+    # МОДЕЛЬ ПРЕДСКАЗЫВАЮЩАЯ какое предсказание лучше 1-й модели или модели не изменения 'microbusiness_density'
+    # raw = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle1modeli{N_modeli}.csv")
     # raw['y_inegr'] = 0
-    # trend_ok_model(raw, minimum) #модель предсказывающая ошибку определения тренда первой моделью
-    # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_posle2modeli.csv", index=False)
+    # variant_model(raw, minimum) #модель предсказывающая ошибку определения тренда первой моделью
+    # raw.to_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle{N_modeli}modeli.csv", index=False)
+
 
     # ОПРЕДЕЛЯЕМ В КАКОМ СЛУЧАЕ КАКУЮ МОДЕЛЬ ПРИМЕНЯТЬ
 
-    # raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_posle2modeli.csv")
-    # main_post_model(raw, minimum) # выбираем первую модель или модель не изменения 'microbusiness_density'
+    raw = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle2modeli{N_modeli}.csv")
+    main_post_model(raw, minimum, N_modeli) # выбираем первую модель или модель не изменения 'microbusiness_density'
 
     # СОЗДАЕМ ФАЙЛ С РЕЗУЛЬТАТОМ
-    # model2_otvet(raw)
+    model2_otvet(raw)
+    print('Время работы:', datetime.now() - start_time)

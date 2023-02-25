@@ -41,10 +41,6 @@ def new_target(raw, param):
 
     # raw.loc[(raw['target'] > param), 'target'] = param
     # raw.loc[(raw['target'] < -param), 'target'] = -param
-
-    # в этих 'cfips' значение 'active' аномально маленькие
-    raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
-    raw.loc[raw['cfips'] == 48269, 'target'] = 0.0
     return raw
 
 # создание лагов  error 1.379034  0.010546  146.796656

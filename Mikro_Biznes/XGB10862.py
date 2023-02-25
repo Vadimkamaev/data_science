@@ -145,6 +145,18 @@ def maceraw(train, test):
     raw['state_i'] = raw['state'].factorize()[0]
     return raw
 
+# обработка файла census
+def censusdef(census, raw):
+    columns = ['pct_bb', 'pct_college', 'pct_foreign_born', 'pct_it_workers', 'median_hh_inc']
+    raw[columns] = 0
+    for index, row_census in census.iterrows():
+        for year in range(2017, 2022):
+            for col in columns:
+                ncol = col+'_'+str(year)
+                maska = (raw['year']==year+2)&(raw['cfips']==row_census['cfips'])
+                raw.loc[maska, col] = row_census[ncol]
+    return raw
+
 # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
 def del_outliers(raw):
     outliers = []  # список выбросов

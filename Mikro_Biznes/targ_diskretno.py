@@ -51,10 +51,6 @@ def new_target(raw, param):
 
     raw.loc[(raw['target'] > param), 'target'] = param
     raw.loc[(raw['target'] < -param), 'target'] = -param
-
-    # в этих 'cfips' значение 'active' аномально маленькие
-    raw.loc[raw['cfips'] == 28055, 'target'] = 0.0
-    raw.loc[raw['cfips'] == 48269, 'target'] = 0.0
     return raw
 
 # создание лагов  error 1.379034  0.010546  146.796656
@@ -105,23 +101,21 @@ def mace_blac_list(raw, mes_1, mes_val):
     seria_dt = seria_dt.loc[seria_dt>=0.50] # оставляем только те, где ['miss'].mean() > 0.5
     print('количство cfips предсказанных хуже чем моделью =', len(seria_dt))
     # Признак отправления в блек лист
-    #blec_maska = df_dt['dif_err'] < param # param от 0 (большой блек) до -10 (малый блек). Проблема 1 выброс
-    blec_maska = (df_dt['miss'] >= 0.5) # от 0.5 (большой блек) до 1 (малый блек) Проблема на 1-м месяце исключит всех
-    #df_dt.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
-    #df_dt = df_dt[~blec_maska]
-    df_dt.sort_values(by='lastactive', inplace=True)
-    shad = 10
-    for lastactive in range(50, 250, shad):
-        maska = (df_dt['lastactive']>lastactive)&(df_dt['lastactive']<=lastactive+shad)
-        horoshie = df_dt[~blec_maska&maska].count()['lastactive']
-        vsego = df_dt[maska].count()['lastactive']
-        print(f'От {lastactive} до {lastactive+shad} :хор.{horoshie}, всего {vsego}, % хор={horoshie/vsego*100}')
-    lastactive = lastactive+shad
-    shad = 1000000000
-    maska = (df_dt['lastactive'] > lastactive) & (df_dt['lastactive'] <= lastactive + shad)
-    horoshie = df_dt[~blec_maska & maska].count()['lastactive']
-    vsego = df_dt[maska].count()['lastactive']
-    print(f'От {lastactive} до {lastactive + shad} :хор.{horoshie}, всего {vsego}, % хор={horoshie / vsego * 100}')
+    # blec_maska = (df_dt['miss'] >= 0.5) # от 0.5 (большой блек) до 1 (малый блек) Проблема на 1-м месяце исключит всех
+    #
+    # df_dt.sort_values(by='lastactive', inplace=True)
+    # shad = 10
+    # for lastactive in range(50, 250, shad):
+    #     maska = (df_dt['lastactive']>lastactive)&(df_dt['lastactive']<=lastactive+shad)
+    #     horoshie = df_dt[~blec_maska&maska].count()['lastactive']
+    #     vsego = df_dt[maska].count()['lastactive']
+    #     print(f'От {lastactive} до {lastactive+shad} :хор.{horoshie}, всего {vsego}, % хор={horoshie/vsego*100}')
+    # lastactive = lastactive+shad
+    # shad = 1000000000
+    # maska = (df_dt['lastactive'] > lastactive) & (df_dt['lastactive'] <= lastactive + shad)
+    # horoshie = df_dt[~blec_maska & maska].count()['lastactive']
+    # vsego = df_dt[maska].count()['lastactive']
+    # print(f'От {lastactive} до {lastactive + shad} :хор.{horoshie}, всего {vsego}, % хор={horoshie / vsego * 100}')
     return
 
 # вывод на печать информацию по качеству работы модели в каждом штате
@@ -154,13 +148,24 @@ def print_month(raw, maska):
     #df_state.sort_values(by='diff_err', inplace=True)
     print(df_state.head(53))
 
+# тагрет для проверки модели. Убираем из проверки выбросы более чем granica
+def target_for_error(raw, maska):
+    granica = 0.2
+    target = raw.loc[maska, 'microbusiness_density']
+    m = raw['microbusiness_density'] > (1 + granica) * raw['mbd_lag1']
+    target.loc[m] = raw.loc[maska & m, 'mbd_lag1'] * (1 + granica)
+    m = raw['microbusiness_density'] < (1 - granica) * raw['mbd_lag1']
+    target.loc[m] = raw.loc[maska & m, 'mbd_lag1'] * (1 - granica)
+    return target
+
 # Валидация
 def validacia(raw, start_val, stop_val, rezult, blac_test_cfips, param1=1, param2=1, param3=1):
     # маска при которой была валидация и по которой сверяем ошибки
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (~raw['cfips'].isin(blac_test_cfips))
-    target = raw.loc[maska, 'microbusiness_density']
+    target = target_for_error(raw, maska)
     ypred = raw.loc[maska, 'ypred']
     err_mod = smape(target, ypred)
+
     #print('Предсказано иссдедуемой моделью. Ошибка SMAPE:',err_mod)
     mbd_lag1 = raw.loc[maska, 'mbd_lag1']
     err_last = smape(target, mbd_lag1)
@@ -205,6 +210,17 @@ def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0):
     model.fit(X_train, y_train)
     # Предсказываем
     y_pred = model.predict(X_test)
+
+    # mask = raw.dcount == mes_val
+    # sppol = []
+    # for lag in range(1, 17):
+    #     sppol.append(f'target_lag{lag}')
+    # delt = 0.8
+    # quan = raw.loc[mask, sppol].abs().quantile(delt, axis=1)
+    # quan = quan.values
+    # y_pred[y_pred > quan] = quan[y_pred > quan]
+    # y_pred[y_pred < -quan] = -quan[y_pred < -quan]
+
 
     y_pred = y_pred + 1
     y_pred = raw.loc[raw.dcount == mes_val, 'mbd_lag1'] * y_pred
@@ -259,8 +275,8 @@ def serch_error(raw, rezult, mini, maxi, lastactive, param=0.0054):
     # здесь должен начинаться цикл по количеству лагов
     raw, train_col = build_lag(raw)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
 
-    start_val = 6  # первый месяц валидации с которого проверяем модель
-    stop_val = 38  # последний месяц валидации до которого проверяем модель
+    start_val = 31#33#22#6  # первый месяц валидации с которого проверяем модель
+    stop_val = 31  # последний месяц валидации до которого проверяем модель
     # запускаем модель по всем месяцам
     raw, blac_cfips = modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips)
     # валидация по результату обработки всех месяцев валидации в цикле
@@ -332,9 +348,9 @@ def serch_lastactive(raw, mini, maxi, rezult):
     return lastactive, rezult # возвращаем лучший lastactive
 
 def serch_param(raw, lastactive, mini, maxi, rezult):
-    minint = 20
-    maxint = 120
-    shag = 30
+    minint = 40
+    maxint = 137
+    shag = 16
     minerror = 1000
     ideal_param = 54
     sort2_param = 22
@@ -350,10 +366,14 @@ def serch_param(raw, lastactive, mini, maxi, rezult):
                 sort2_param = ideal_param
                 ideal_param = param
         shag = shag // 2
-        spisok = [ideal_param-shag, ideal_param+shag]
-        if sort2_param-shag != ideal_param+shag:
+        spisok = []
+        if ideal_param-shag > minint:
+            spisok = spisok + [ideal_param-shag]
+        if ideal_param+shag < maxint:
+            spisok = spisok + [ideal_param+shag]
+        if (sort2_param-shag != ideal_param+shag) & (sort2_param-shag > minint):
             spisok = spisok + [sort2_param-shag]
-        if sort2_param+shag != ideal_param-shag:
+        if (sort2_param+shag != ideal_param-shag) & (sort2_param+shag < maxint):
             spisok = spisok + [sort2_param+shag]
     print('serch_param')
     print('mini=', mini, 'maxi=', maxi)
@@ -382,8 +402,9 @@ def print_sedmenti(sedmenti):
         maska = sedmenti['versia'] == versia
         df = sedmenti[maska]
         print(f"Версия = {versia}. Оптимизированно на {df['optim'].mean()*100}%")
-        print(f"'error':{df['error'].mean()}; 'dif_err':{df['dif_err'].mean()}; "
-              f"'dif_no_blac':{df['dif_no_blac'].mean()}")
+        ermean = df['error'].mean()
+        dif_errmean = df['dif_err'].mean()
+        print(f"error:{ermean}; dif_err:{dif_errmean}")
         print(df.head(40))
 
 # оптимизируем все сегменты определенной версии в датафрейме sedmenti
@@ -410,7 +431,7 @@ def optimizacia_segmentacii(raw, rezult):
 def optimizacia_param(raw, rezult):
     versia = 1
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
-    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv")
+    sedmenti = pd.read_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno3.csv")
     df = sedmenti[(sedmenti['versia'] == versia)&(sedmenti['optim'] == 1)]
     for ind, row in df.iterrows(): # цикл по датафрейму сегменты
         # оптимизация отдельного сегмента
@@ -432,7 +453,7 @@ def optimizacia_param(raw, rezult):
         sedmenti.loc[ind, 'dif_err'] = dif_err
         sedmenti.loc[ind, 'dif_no_blac'] = dif_no_blac
         sedmenti.loc[ind, 'optim'] = 2
-        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv", index=False)
+        sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno3.csv", index=False)
         rezult = pd.DataFrame(columns=['lastactive', 'param', 'kol', 'error', 'dif_err', 'dif_no_blac'])
     print_sedmenti(sedmenti)
 
@@ -451,7 +472,8 @@ def kol_in_sedmenti(raw, sedmenti, versia):
 
 # создание датафрейма sedmenti и сохранение его в файл
 def init_segmentacii(raw):
-    granici =[60, 90, 120, 160, 220, 300, 400, 550, 750, 1050, 1450, 2300, 4000, 8000, 22000]
+    # granici =[60, 90, 120, 160, 220, 300, 400, 550, 750, 1050, 1450, 2300, 4000, 8000, 22000]
+    granici = [60, 160, 400, 750, 1450, 2300, 22000]
     versia = 1
     d = {'versia':versia,  #возможно несколько версий разбиения в процессе оптимизации
          'min': granici, # 'lastactive' >= 'min'
@@ -467,7 +489,7 @@ def init_segmentacii(raw):
     sedmenti = pd.DataFrame(d)
     sedmenti = kol_in_sedmenti(raw, sedmenti, versia)
     print_sedmenti(sedmenti)
-    sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno6.csv", index=False)
+    sedmenti.to_csv("C:\\kaggle\\МикроБизнес\\targ_diskretno7.csv", index=False)
 
 # создание raw с предсказаниями без блек листов с использованием в трайне всех cfips
 def no_blec_vse_cfips(raw, rezult):

@@ -244,6 +244,6 @@ if __name__ == "__main__":
     #okno.csv("C:\\kaggle\\белки\\test1.csv")
     #okno.csv("C:\\kaggle\\белки\\train_updates_20220929.csv")
     #okno.csv("C:\\kaggle\\белки\\supertext.csv")
-    okno.csv("C:\\kaggle\\МикроБизнес\\raw_otdelno.csv")
+    okno.csv("C:\\kaggle\\МикроБизнес\\revealed_test.csv")
 
 
