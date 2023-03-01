@@ -5,11 +5,11 @@ import pandas as pd
 def sverka():
     id = 'row_id'
     stolbec = 'microbusiness_density' # столбец, который сверяем
-    file1 = pd.read_csv("C:\\kaggle\\МикроБизнес\\sub_xgb.csv")
-    file2 = pd.read_csv("C:\\kaggle\\МикроБизнес\\dlia_sverki.csv")
+    file1 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission (21).csv")
+    file2 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission (22).csv")
     file1['raznost'] = file1[stolbec] - file2[stolbec]
+    print(file1['raznost'].sum())
     okno.vewdf(file1)
-
 sverka()
 
 

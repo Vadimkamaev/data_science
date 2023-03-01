@@ -238,7 +238,6 @@ def modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips, param):
         # post_model(raw, y_pred, mes_val)
         raw = mult(raw, mes_val, param)
     otchet(raw, start_val, stop_val)
-    #blac_cfips = mace_blac_list(raw, start_val, stop_val, blac_cfips)
     print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
     # print('Значимость колонок трайна в модели')
     return raw
@@ -312,8 +311,8 @@ def new_cfips(raw, lastactive, max_cfips, kol = 2):
 def posle_sglashivfnia(raw, rezult):
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     # создаем блек-лист cfips которых не используем в тесте
-    min_int = 0
-    max_int = 10000000000000
+    min_int = 160
+    max_int = 180
     blac_test_cfips = raw.loc[(raw['lastactive'] < min_int) | (raw['lastactive'] >= max_int), 'cfips']
     blac_test_cfips = blac_test_cfips.unique()
     max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
@@ -340,7 +339,7 @@ def posle_sglashivfnia(raw, rezult):
         # raw = new_cfips(raw, lastactive, max_cfips)
         raw = new_target(raw,param/10000)
         raw, train_col = build_lag(raw, 1)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
-        start_val = 12#6  # первый месяц валидации с которого проверяем модель
+        start_val = 28#6  # первый месяц валидации с которого проверяем модель
         stop_val = 38  # последний месяц валидации до которого проверяем модель
 
         #модель без блек листа

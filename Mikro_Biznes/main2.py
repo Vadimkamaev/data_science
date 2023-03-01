@@ -256,17 +256,6 @@ def serch_error(raw, rezult, mini, maxi, lastactive, start_val, stop_model, para
     blac_test_cfips = raw.loc[maska, 'cfips']
     blac_test_cfips = blac_test_cfips.unique()
 
-    # if metod == 0:
-    #     #создаем блек-лист cfips который не нужен в трайне
-    #     if lastactive >= maxi:
-    #         maska = (raw['lastactive'] < mini) | ((raw['lastactive'] > maxi) &
-    #                                                  (raw['lastactive'] < lastactive))
-    #     elif lastactive <= mini:
-    #         maska = (raw['lastactive'] < lastactive)
-    #     else:
-    #         print('Чо за ерунда?')
-    #         maska = (raw['lastactive'] < mini)
-    # else:
     maska = (raw['lastactive'] < lastactive)
 
     blac_cfips = raw.loc[maska, 'cfips']

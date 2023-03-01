@@ -878,6 +878,37 @@ def work_granica(raw, row_state, maska):
 
 # ЗДЕСЬ ЗАКАНЧИВАЕТСЯ ОПТИМИЗАЦИЯ МОДЕЛЕЙ. Далее выполнение моделей.
 
+# ЦФИПС МОДЕЛЬ
+def cfips_1_mes(raw, mes_val, kol_mes):
+    for cfips in raw['cfips'].unique():
+        maska = (raw.cfips == cfips) & (raw.dcount < mes_val) & (raw.dcount >= mes_val-kol_mes)
+        target = raw.loc[maska, 'microbusiness_density']
+        ypred = raw.loc[maska, 'ypred']
+        err_mod = smape(target, ypred)
+        mbd_lag1 = raw.loc[maska, 'mbd_lag1']
+        err_last = smape(target, mbd_lag1)
+        maska = (raw.cfips == cfips) & (raw.dcount == mes_val)
+        if err_mod > err_last:
+            raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'mbd_lag1']
+    return raw
+
+
+def cfips_model(raw):
+    global start_val, stop_model, main_start_val
+    start_val = main_start_val
+    for kol_mes in range(2,20): # количество месяцев учпитываемых в модели
+        for mes_val in tqdm(range(main_start_val, stop_model + 1)):
+            raw = cfips_1_mes(raw, mes_val, kol_mes)
+
+            # mes_1 = 2  #
+            # y_pred, znachenie = vsia_model(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0)
+            # raw = post_model(raw, y_pred, mes_val, blac_test_cfips)
+        rezult = model2_validacia(raw, rezult, kol_mes, 0, 0)
+        rezult.sort_values(by='err_2mod', inplace=True, ascending=True)
+        print(rezult.head(22))
+        # otchet(raw, start_val, mes_val)
+
+
 # выполнение можелей variant_model, trend_ok, granica
 def work_state(raw, df_state):
     global start_val, stop_model
@@ -885,21 +916,24 @@ def work_state(raw, df_state):
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_model)
     raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'ypred']
 
-    for i, row_state in df_state.iterrows():
-        raw = work_post_var_model(raw, row_state, maska)
-    print('')
-    print('------оптимизированная по штатам variant_model ---------')
-    rezult = model2_validacia(raw, rezult)
-    model2_otchet(raw)
-    print(rezult.head(22))
+    cfips_model(raw)
 
-    for i, row_state in df_state.iterrows():
-        work_model_mix(raw, row_state, maska)
-    print('')
-    print('------оптимизированная по штатам trend_ok_model ---------')
-    rezult = model2_validacia(raw, rezult)
-    model2_otchet(raw)
-    print(rezult.head(22))
+
+    # for i, row_state in df_state.iterrows():
+    #     raw = work_post_var_model(raw, row_state, maska)
+    # print('')
+    # print('------оптимизированная по штатам variant_model ---------')
+    # rezult = model2_validacia(raw, rezult)
+    # model2_otchet(raw)
+    # print(rezult.head(22))
+    #
+    # for i, row_state in df_state.iterrows():
+    #     work_model_mix(raw, row_state, maska)
+    # print('')
+    # print('------оптимизированная по штатам trend_ok_model ---------')
+    # rezult = model2_validacia(raw, rezult)
+    # model2_otchet(raw)
+    # print(rezult.head(22))
     # #
     # for i, row_state in df_state.iterrows():
     #     raw = work_granica(raw, row_state, maska)

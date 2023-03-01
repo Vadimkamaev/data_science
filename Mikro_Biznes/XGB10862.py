@@ -159,46 +159,24 @@ def censusdef(census, raw):
 
 # УДАЛЕНИЕ ВЫБРОСОВ. Применется изменение всех значений до выброса
 def del_outliers(raw):
-    outliers = []  # список выбросов
-    cnt = 0  # счетчик выбросов
-    vsego = 0
     # цикл по уникальным cfips
     for o in tqdm(raw.cfips.unique()):  # tqdm - прогресс бар
         indices = (raw['cfips'] == o)  # маска отфильтрованная по cfips
         tmp = raw.loc[indices].copy().reset_index(drop=True)  # df фильтрован по cfips
         # массив значений microbusiness_density
         var = tmp.microbusiness_density.values.copy()
-        # vmax = np.max(var[:38]) - np.min(var[:38])
-
         # цикл назад от предпоследнего до 2-го элемента
         for i in range(37, 2, -1):
             # среднее значение microbusiness_density с 0-го по i-й элемент * 0.2
-            #thr = 0.15 * np.mean(var[:i]) # XGB. Ошибка SMAPE: 1.1366349123015205
             thr = 0.10 * np.mean(var[:i]) # 1.0863 - 22 место
-            #thr = 0.05 * np.mean(var[:i]) # 1.0865
-            # difa = abs(var[i] - var[i - 1])
-            # if (difa >= thr):  # если microbusiness_density изменился больше чем на 20%
-            #     #var[:i] *= (var[i] / var[i - 1])  # меняем все значения до i-го
-            #     var[:i] += (var[i] / var[i - 1])  # меняем все значения до i-го
-            #     outliers.append(o)  # добавляем cfips в список выбросов
-            #     cnt += 1  # счетчик выбросов
-            # else:
-            # разность i-го и i-1-го значения microbusiness_density
             difa = var[i] - var[i - 1] #XGB. Ошибка SMAPE: 1.161117561342498
             if (difa >= thr) or (difa <= -thr):  # если microbusiness_density изменился больше чем на 20%
                 if difa > 0:
                     var[:i] += difa - 0.0045 # 0.0045 лучше чем 0.003 и чем 0.006
                 else:
                     var[:i] += difa + 0.0043 # 0.0043 лучше чем 0.003 и чем 0.006
-                # Предсказано XGB.Ошибка SMAPE: 0.9178165883836801
-                # Равенство последнему значению. Ошибка SMAPE: 1.0078547907542301
-                outliers.append(o)  # добавляем cfips в список выбросов
-                cnt += 1  # счетчик выбросов
-            vsego += 1
         var[0] = var[1] * 0.99
         raw.loc[indices, 'microbusiness_density'] = var
-    outliers = np.unique(outliers)
-    print(len(outliers), cnt, cnt/vsego*100)
     return raw
 
 #SMAPE — это относительная метрика, поэтому цель raw['target'] преобразована и равна отношению
