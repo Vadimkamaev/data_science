@@ -244,6 +244,12 @@ if __name__ == "__main__":
     #okno.csv("C:\\kaggle\\белки\\test1.csv")
     #okno.csv("C:\\kaggle\\белки\\train_updates_20220929.csv")
     #okno.csv("C:\\kaggle\\белки\\supertext.csv")
-    okno.csv("C:\\kaggle\\МикроБизнес\\revealed_test.csv")
+    #okno.csv("C:\\kaggle\\ОбучИгра\\train.csv")
+
+    train = pd.read_csv("C:\\kaggle\\ОбучИгра\\train_0_4.csv")
+    # missed_columns = ["fullscreen", "hq", "music", "page", "hover_duration", "text"]
+    # train = train.drop(missed_columns, axis=1)
+    okno.vewdf(train)
+
 
 

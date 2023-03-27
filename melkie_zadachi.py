@@ -5,10 +5,18 @@ import pandas as pd
 def sverka():
     id = 'row_id'
     stolbec = 'microbusiness_density' # столбец, который сверяем
-    file1 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission (21).csv")
-    file2 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission (22).csv")
+    file1 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission (2).csv")
+    # file2 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission_1.3821.csv") # 283.8127077335253
+    file2 = pd.read_csv("C:\\kaggle\\МикроБизнес\\submission_best.csv") # близко 3.933763435380734
+    file1.sort_values(by=id, inplace=True)
+    file2.sort_values(by=id, inplace=True)
+    file1.reset_index(inplace=True)
+    file2.reset_index(inplace=True)
     file1['raznost'] = file1[stolbec] - file2[stolbec]
-    print(file1['raznost'].sum())
+    file1['file2'] = file2[stolbec]
+    file3 = file1[file1['row_id'].str[-5:] == '01-01'].copy()
+    file3.sort_values(by='raznost', inplace=True)
+    print(file3['raznost'].sum())
     okno.vewdf(file1)
 sverka()
 
@@ -29,10 +37,6 @@ def melk1():
             newdf.loc[i, 'target'] = sub0.loc[i, 'target']
     newdf.to_csv("C:\\kaggle\\Гравитация\\reztest.csv", index=False)
 
-    pass
-    # rez.drop(columns='Unnamed: 0',inplace=True)
-    # rez['seq_id'] = rez['seq_id'].astype(int)
-    # rez.to_csv("C:\\kaggle\\белки\\reztest4.csv", index=False)
 #melk1()
 
 

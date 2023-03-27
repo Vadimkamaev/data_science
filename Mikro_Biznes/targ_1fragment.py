@@ -26,7 +26,7 @@ def vsmape(y_true, y_pred):
     return 100 * smap
 
 # создание нового таргета
-def new_target(raw, param=0.0054):
+def new_target1(raw, param, param2):
     # 'target' ='microbusiness_density' предыдущего месяца при том же 'cfips'
     raw['target'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
     # -1, чтобы при не изменении значения 'microbusiness_density' - 'target'==0
@@ -34,16 +34,33 @@ def new_target(raw, param=0.0054):
     raw['target'] = raw['microbusiness_density'] / raw['target'] - 1
     raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
     raw['target'].fillna(0, inplace=True)
-
-    # raw.loc[(raw['target'] < - 0.0074), 'target'] = - 0.0074 # 1.403375  0.015754     0.001878
-    # raw.loc[(raw['target'] > 0.0074), 'target'] = 0.0074 #
-    #param = 0.0074 # 1.404466  0.014664     0.000787
-    #param = 0.015 # 0.60  aaa  1.404739  0.014390     0.000514
-    #param = 0.01 # 0.73  aaa  1.403958  0.015171     0.001295
-    raw.loc[(raw['target'] > param), 'target'] = param
-    raw.loc[(raw['target'] < -param), 'target'] = -param
-
+    # raw.loc[(raw['target'] < - 0.0069), 'target'] = - 0.0069 # error 1.100728  0.028686     0.003218
+    # raw.loc[(raw['target'] > 0.0081), 'target'] = 0.0081  # error 1.100728  0.028686     0.003218
+    raw.loc[(raw['target'] < - param), 'target'] = - param # error 1.100728  0.028686     0.003218
+    raw.loc[(raw['target'] > param + 0.0034), 'target'] = param + 0.0034  # error 1.100728  0.028686     0.003218
+    # raw.loc[(raw['target'] > param), 'target'] = param
+    # raw.loc[(raw['target'] < -param2), 'target'] = -param2
     return raw
+
+# создание нового таргета
+def new_target2(raw, param):
+    k = 0.0017
+    # 'target' ='microbusiness_density' предыдущего месяца при том же 'cfips'
+    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    #y_lin_pred = raw['mbd_lag1'] * 1.0016 + 0.0018
+    raw['target'] = (raw['microbusiness_density'] - raw['mbd_lag1'])/(raw['mbd_lag1']+1)
+    raw['target'].fillna(0, inplace=True)
+    # raw.loc[(raw['target'] < k - param), 'target'] = k - param # error 1.100728  0.028686     0.003218
+    # raw.loc[(raw['target'] > param + k), 'target'] = param + k
+
+
+    # raw.loc[(raw['target'] < - param2), 'target'] = - param2 #
+    # raw.loc[(raw['target'] > param), 'target'] = param #
+    # 0.007 на 0.026
+    raw.loc[(raw['target'] > 0.1), 'target'] = 0.1
+    raw.loc[(raw['target'] < -0.1), 'target'] = -0.1
+    return raw
+
 
 # создание лагов  error 1.379034  0.010546  146.796656
 def build_lag(raw, param): #
@@ -57,13 +74,16 @@ def build_lag(raw, param): #
     raw['mbd_lag1'].fillna(method='bfill', inplace=True)
     # создаем 1 лаг 'active' - общее количество микропредприятий в округе
     raw['active_lag1'] = raw.groupby('cfips')['active'].shift(1)
-    train_col += ['mbd_lag1', 'active_lag1', 'median_hh_inc', 'month'] #  1.403340  0.015789   144.360897
+    train_col += ['mbd_lag1', 'active_lag1', 'median_hh_inc', 'month']
+    k = 0.0017
+    raw.loc[(raw['target'] < k - param), 'target'] = k - param # error 1.100728  0.028686     0.003218
+    raw.loc[(raw['target'] > param + k), 'target'] = param + k
     return raw, train_col
 
 # получение трайна и 'y' (игрик) для модели, mes_1 - первый месяц с которого используем трайн для модели
 def train_and_y(raw, mes_1, mes_val, train_col): # train_col - список используемых полей трейна
     # маска тренировочной выборки 1.408914 -0.097942
-    maska_train = (raw.istest == 0) & (raw.dcount < mes_val) & (raw.dcount >= mes_1)
+    maska_train = (raw.dcount < mes_val) & (raw.dcount >= mes_1)
     train = raw.loc[maska_train, train_col]
     y = raw.loc[maska_train, 'target']
     return train, y
@@ -71,7 +91,7 @@ def train_and_y(raw, mes_1, mes_val, train_col): # train_col - список ис
 # Получение х_тест и y_тест. mes_val - месяц по которому проверяем модель
 def x_and_y_test(raw, mes_val, train_col): # train_col - список используемых полей трейна
     # маска валидационной выборки. Валидация по 1 месяцу
-    maska_val = (raw.istest == 0) & (raw.dcount == mes_val)
+    maska_val = (raw.dcount == mes_val)
     X_test = raw.loc[maska_val, train_col]
     y_test = raw.loc[maska_val, 'target']
     return X_test, y_test
@@ -145,14 +165,8 @@ def validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, para
     mbd_lag1 = raw.loc[maska, 'mbd_lag1']
     err_last = smape(target, mbd_lag1)
     print('Равенство последнему значению. Ошибка SMAPE:', err_last)
-
-    y_no_blac = raw.loc[maska, 'y_no_blac']
-    err_y_no_blac = smape(target, y_no_blac)
-    print('Без блек листа. Ошибка SMAPE:', err_y_no_blac)
-
     dif_err = err_last - err_mod # положительная - хорошо
-    dif_no_blac = err_y_no_blac - err_mod # положительная - хорошо
-    rezult.loc[len(rezult.index)] = [param1, param2, param3, err_mod, dif_err, dif_no_blac]
+    rezult.loc[len(rezult.index)] = [param1, param2, param3, err_mod, dif_err, 0]
     #print_month(raw, maska)
     return rezult
 
@@ -171,7 +185,7 @@ def vsia_model1(raw, mes_1, mes_val, train_col, blac_cfips, param=0):
         # В окончательном варианте надо удалить max_leaves=17 и поставить max_depth=8
         max_leaves=17,
         #max_bin=4096, #Увеличение повышает оптимальность за счет увеличения времени вычислений.
-        n_jobs=1,
+        n_jobs=3,
     )
     model.fit(X_train, y_train)
     # Предсказываем
@@ -198,7 +212,7 @@ def vsia_model1(raw, mes_1, mes_val, train_col, blac_cfips, param=0):
     return y_pred
 
 # формирование колонки 'ypred' по результатам 1-го процесса оптимизации
-def post_model(raw, y_pred, mes_val):
+def post_model1(raw, y_pred, mes_val):
     maska = raw.dcount == mes_val
     # преобразовываем target в 'microbusiness_density'
     y_pred = y_pred + 1
@@ -208,35 +222,210 @@ def post_model(raw, y_pred, mes_val):
     raw.loc[maska, 'ypred'] = y_pred
     return raw
 
-# Модифицированный мульт
-def mult(raw, mes_val, kol_mes):
+# формирование колонки 'ypred' по результатам 1-го процесса оптимизации
+def post_model2(raw, y_pred, mes_val):
+    maska = raw.dcount == mes_val
+    # преобразовываем target в 'microbusiness_density'
+    # y_pred = y_pred + 1
+    y_pred = raw.loc[maska, 'mbd_lag1'] * (1+y_pred)+y_pred
+    # сохраняем результат обработки одного цикла
+    #maska =(~raw['cfips'].isin(blac_test_cfips))&(raw.dcount == mes_val)
+    raw.loc[maska, 'ypred'] = y_pred
+    return raw
+
+# МУЛЬТ
+# Моульт для следующего месяца
+def mult1(raw, mes_val, param, param2):
+    kol_mes = 12
     raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    mult_column_to_mult = {f'smape_{mult}': mult for mult in [param2, param]}
     maska = (raw.dcount >= mes_val - kol_mes) & (raw.dcount < mes_val)
     train_data = raw[maska].copy()
-    mult_column_to_mult = {f'smape_{mult}': mult for mult in [1.00, 1.001, 1.002, 1.003]}
     y_true = train_data['microbusiness_density']
     for mult_column, mult in mult_column_to_mult.items():
-        train_data['y_pred'] = train_data['mbd_lag1'] * mult
+        train_data['y_pred'] = train_data['mbd_lag1'] + mult
+        train_data[mult_column] = vsmape(y_true, train_data['y_pred'])
+    df_agg = train_data.groupby('cfips')[list(mult_column_to_mult.keys())].mean()
+    df_agg['best_mult'] = df_agg.idxmin(axis=1).map(mult_column_to_mult)
+    df_agg= df_agg['best_mult']
+    raw = raw.join(df_agg, on='cfips')
+    #
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1'] + raw.loc[maska, 'best_mult']
+    raw.loc[maska, 'multi'] = raw.loc[maska, 'best_mult']
+    raw.drop('best_mult', axis=1, inplace = True)
+
+
+    raw['ypred'].fillna(0, inplace = True)
+    return raw
+
+# Моульт для месяца через 1
+def mult2(raw, mes_val):
+    kol_mes = 4
+    # raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    raw['mbd_lag2'] = raw.groupby('cfips')['microbusiness_density'].shift(2)
+    maska = (raw.dcount >= mes_val-1 - kol_mes) & (raw.dcount < mes_val -1)
+    train_data = raw[maska].copy()
+    mult_column_to_mult = {f'smape_{mult}': mult for mult in [0, 0.013]}
+    y_true = train_data['microbusiness_density']
+    for mult_column, mult in mult_column_to_mult.items():
+        train_data['y_pred'] = train_data['mbd_lag2'] + mult
         train_data[mult_column] = vsmape(y_true, train_data['y_pred'])
     df_agg = train_data.groupby('cfips')[list(mult_column_to_mult.keys())].mean()
     df_agg['best_mult'] = df_agg.idxmin(axis=1).map(mult_column_to_mult)
     df_agg= df_agg['best_mult']
     raw = raw.join(df_agg, on='cfips')
     maska = raw.dcount == mes_val
-    raw.loc[maska, 'ypred'] = raw.loc[maska,'mbd_lag1'] * raw.loc[maska,'best_mult']
+    raw.loc[maska, 'ypred'] = raw.loc[maska,'mbd_lag2'] + raw.loc[maska,'best_mult']
+    raw.drop('best_mult', axis=1, inplace = True)
+
+    # raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2'] * 1.0058 #(1 + 58 / 10000) # 58/10000
+    raw['ypred'].fillna(0, inplace = True)
+    return raw
+
+# Моульт для месяца через 2
+def mult3(raw, mes_val):
+    kol_mes = 6
+    raw['mbd_lag3'] = raw.groupby('cfips')['microbusiness_density'].shift(3)
+    maska = (raw.dcount >= mes_val-2 - kol_mes) & (raw.dcount < mes_val -2)
+    train_data = raw[maska].copy()
+    mult_column_to_mult = {f'smape_{mult}': mult for mult in [0, 0.023]}
+    y_true = train_data['microbusiness_density']
+    for mult_column, mult in mult_column_to_mult.items():
+        train_data['y_pred'] = train_data['mbd_lag3'] + mult
+        train_data[mult_column] = vsmape(y_true, train_data['y_pred'])
+    df_agg = train_data.groupby('cfips')[list(mult_column_to_mult.keys())].mean()
+    df_agg['best_mult'] = df_agg.idxmin(axis=1).map(mult_column_to_mult)
+    df_agg= df_agg['best_mult']
+    raw = raw.join(df_agg, on='cfips')
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska,'mbd_lag3'] + raw.loc[maska,'best_mult']
     raw.drop('best_mult', axis=1, inplace = True)
     raw['ypred'].fillna(0, inplace = True)
     return raw
 
-def modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips, param):
+# ЛАЙНЕ
+# line для следующего месяца
+def line1(raw, mes_val):
+    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1'] * 1.0016 + 0.0018
+    maska = maska & (raw.lastactive < 220)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# line для месяца через 1
+def line2(raw, mes_val):
+    raw['mbd_lag2'] = raw.groupby('cfips')['microbusiness_density'].shift(2)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2'] * 1.0039 + 0.0033 # error 1.692963 -0.563549
+    maska = maska & (raw.lastactive < 150)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# line для месяца через 2
+def line3(raw, mes_val):
+    raw['mbd_lag3'] = raw.groupby('cfips')['microbusiness_density'].shift(3)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag3'] * 1.006 + 0.0068 # error 2.089475 -0.960060
+    maska = maska & (raw.lastactive < 100)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag3']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# line для месяца через 3
+def line4(raw, mes_val):
+    raw['mbd_lag4'] = raw.groupby('cfips')['microbusiness_density'].shift(4)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag4'] * 1.0084 + 0.0099 # error 2.468962 -1.339547
+    maska = maska & (raw.lastactive < 50)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag4']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# С ПАРАМЕТРАМИ ДЛЯ НАСТРОЙКИ
+
+def line1_param(raw, mes_val, param, param2):
+    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1'] * (1 + param) + param2
+
+    # maska150 = maska & (raw['lastactive'] >= 150) & (raw['lastactive'] < 1000)
+    # raw.loc[maska150, 'ypred'] = raw.loc[maska150, 'mbd_lag1'] + 0.0044
+
+    # maska1000 = maska & (raw['lastactive'] >= 1000) & (raw['lastactive'] < 2000)
+    # raw.loc[maska1000, 'ypred'] = raw.loc[maska1000, 'mbd_lag1'] *(1.0005) + 0.004
+
+    # maska2000 = maska & (raw['lastactive'] >= 2000) & (raw['lastactive'] < 5000)
+    # raw.loc[maska2000, 'ypred'] = raw.loc[maska2000, 'mbd_lag1'] *(1.0005) + 0.006
+
+    # maska5000 = maska & (raw['lastactive'] >= 5000)
+    # raw.loc[maska5000, 'ypred'] = raw.loc[maska5000, 'mbd_lag1'] *(1.0015) + 0.01
+
+    #raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1'] * 1.0016 + 0.0018 # средняя
+    maska = maska & (raw.lastactive < 135)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# line для месяца через 1
+def line2_param(raw, mes_val, param, param2):
+    raw['mbd_lag2'] = raw.groupby('cfips')['microbusiness_density'].shift(2)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2'] * (1+param) + param2
+
+    # maska150 = maska & (raw['lastactive'] >= 150) & (raw['lastactive'] < 1000)
+    # raw.loc[maska150, 'ypred'] = raw.loc[maska150, 'mbd_lag2'] + 0.0095
+
+    # maska1000 = maska & (raw['lastactive'] >= 1000) & (raw['lastactive'] < 2000)
+    # raw.loc[maska1000, 'ypred'] = raw.loc[maska1000, 'mbd_lag2'] * 1.001) + 0.0105
+
+    # maska2000 = maska & (raw['lastactive'] >= 2000) & (raw['lastactive'] < 5000)
+    # raw.loc[maska2000, 'ypred'] = raw.loc[maska2000, 'mbd_lag2'] * 1.001) + 0.0145
+
+    # maska5000 = maska & (raw['lastactive'] >= 5000)
+    # raw.loc[maska5000, 'ypred'] = raw.loc[maska5000, 'mbd_lag2'] *(1.0015) + 0.026
+
+    # raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2'] * 1.0039 + 0.0033 # средняя
+    maska = maska & (raw.lastactive < 150)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag2']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+# line для месяца через 2
+def line3_param(raw, mes_val, param, param2):
+    raw['mbd_lag3'] = raw.groupby('cfips')['microbusiness_density'].shift(3)
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag3'] * (1+param) + param2
+
+    # maska150 = maska & (raw['lastactive'] >= 150) & (raw['lastactive'] < 1000)
+    # raw.loc[maska150, 'ypred'] = raw.loc[maska150, 'mbd_lag3'] + 0.0170
+
+    # maska1000 = maska & (raw['lastactive'] >= 1000) & (raw['lastactive'] < 2000)
+    # raw.loc[maska1000, 'ypred'] = raw.loc[maska1000, 'mbd_lag3'] * 1.0015) + 0.0190
+
+
+    #raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag3'] * 1.006 + 0.0068 # средняя error 2.089475 -0.960060
+    maska = maska & (raw.lastactive < 100)
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag3']
+    raw['ypred'].fillna(0, inplace=True)
+    return raw
+
+def modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips, param, param2):
     start_time = datetime.now()  # время начала работы модели
     # c start_val начинаeтся цикл по перебору номера валидационного месяца до stop_val включительно
-    for mes_val in tqdm(range(start_val, stop_val + 1)):  # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
+
+    for mes_val in range(start_val, stop_val + 1):  # всего 39 месяцев с 0 до 38 в трайне заполнены инфой
+        min_err = 10000
         # здесь должен начинаться цикл по перебору номера первого месяца для трайна
         mes_1 = 2 #
         # y_pred  = vsia_model1(raw, mes_1, mes_val, train_col, blac_cfips, param=0)
-        # post_model(raw, y_pred, mes_val)
-        raw = mult(raw, mes_val, param)
+        # post_model2(raw, y_pred, mes_val)
+        line3_param(raw, mes_val, param, param2)
+
+
     otchet(raw, start_val, stop_val)
     print('Обучение + предсказание + обработка заняло', datetime.now() - start_time)
     # print('Значимость колонок трайна в модели')
@@ -311,55 +500,38 @@ def new_cfips(raw, lastactive, max_cfips, kol = 2):
 def posle_sglashivfnia(raw, rezult):
     raw['lastactive'] = raw.groupby('cfips')['active'].transform('last')
     # создаем блек-лист cfips которых не используем в тесте
-    min_int = 160
-    max_int = 180
+    min_int = 1000
+    max_int = 2000
     blac_test_cfips = raw.loc[(raw['lastactive'] < min_int) | (raw['lastactive'] >= max_int), 'cfips']
     blac_test_cfips = blac_test_cfips.unique()
     max_cfips = raw['cfips'].max()  # максимальная реальна 'cfips', больше неё фиктивные 'cfips'
-    param =54 #
-    for param in range(1,20,1): # при 30 - 1.404981  0.014148     0.000272
-        #max_active = 5730679879807890879767
-        #param = 1
-        lastactive = -1
-        # raw = raw[raw['cfips'] <= max_cfips]
-        # создаем блек-лист cfips который не нужен в трайне
-        # if lastactive >= max_int:
-        #     maska = (raw['lastactive'] < min_int)|((raw['lastactive'] > max_int)&
-        #                                            (raw['lastactive'] < lastactive))
-        # elif lastactive <= min_int:
-        #     maska = (raw['lastactive'] < lastactive)
-        # else:
-        #     print('Чо за ерунда?')
+    train_col =[]
+    for param1 in range(0, 20, 5): # при 30 - 1.404981  0.014148     0.000272
+        param = param1 / 10000
+        for param2 in range(50, 300, 5):
+            param2 = param2/10000
 
-        maska = (raw['lastactive'] < lastactive)
+            lastactive = -1
 
-        blac_cfips = raw.loc[maska, 'cfips'] # убираем из трайна
-        blac_cfips = blac_cfips.unique()
-        # создаем гибриды из cfips для трайна
-        # raw = new_cfips(raw, lastactive, max_cfips)
-        raw = new_target(raw,param/10000)
-        raw, train_col = build_lag(raw, 1)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
-        start_val = 28#6  # первый месяц валидации с которого проверяем модель
-        stop_val = 38  # последний месяц валидации до которого проверяем модель
+            blac_cfips = []
+            # создаем гибриды из cfips для трайна
+            # raw = new_cfips(raw, lastactive, max_cfips)
+            raw = new_target2(raw,param)
+            raw, train_col = build_lag(raw, param)  # создаем лаги c 2 и mes_1 = 4 # error 1.598877, dif_err -0.287906
+            start_val = 28  # первый месяц валидации с которого проверяем модель
+            stop_val = 38  # последний месяц валидации до которого проверяем модель
+            #модель без блек листа
+            # raw = modeli_po_mesiacam(raw, start_val, stop_val, train_col, [])
+            # raw['y_no_blac'] = raw['ypred']
+            # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv", index=False)
 
-        #модель без блек листа
-        # raw = modeli_po_mesiacam(raw, start_val, stop_val, train_col, [])
-        # raw['y_no_blac'] = raw['ypred']
-        # raw.to_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv", index=False)
+            # валидация по результату обработки всех месяцев валидации в цикле
+            raw= modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips, param, param2)
+            rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, lastactive, param, param2)
 
-        # валидация по результату обработки всех месяцев валидации в цикле
-        raw= modeli_po_mesiacam(raw, start_val, stop_val, train_col, blac_cfips, param)
-        # koeff = 0.84
-        # raw['ypred'] = (raw['ypred'] - raw['mbd_lag1']) * koeff + raw['mbd_lag1']
-
-        # raw['ypred00'] = raw['ypred']
-        # for param1 in range(65,101,1):
-        #     param1 = param1/100
-        #     raw['ypred'] = (raw['ypred00']-raw['mbd_lag1'])*param1 + raw['mbd_lag1']
-        rezult = validacia(raw, start_val, stop_val, rezult, blac_test_cfips, max_cfips, lastactive, param)
-        print('Сортировка по dif_err')
-        rezult.sort_values(by='dif_err', inplace=True, ascending=False)
-        print(rezult.head(50))
+            print('Сортировка по dif_err')
+            rezult.sort_values(by='dif_err', inplace=True, ascending=False)
+            print(rezult.head(50))
 
 
 
@@ -385,7 +557,7 @@ if __name__ == "__main__":
 
     #raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_otdelno.csv")
 
-    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_no_blac.csv")
+    raw = pd.read_csv("C:\\kaggle\\МикроБизнес\\raw_cens.csv")
 
     raw['first_day_of_month'] = pd.to_datetime(raw["first_day_of_month"])
     raw['ypred'] = 0

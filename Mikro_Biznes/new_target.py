@@ -25,85 +25,6 @@ def vsmape(y_true, y_pred):
     smap[pos_ind] = num[pos_ind] / dem[pos_ind]
     return 100 * smap
 
-# создание нового таргета
-def new_target(raw, param):
-    # 'target' ='microbusiness_density' предыдущего месяца при том же 'cfips'
-    raw['target'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
-    # -1, чтобы при не изменении значения 'microbusiness_density' - 'target'==0
-    # 'target' ='microbusiness_density' текущего месяца делить на предыдущего месяца - 1
-    raw['target'] = raw['microbusiness_density'] / raw['target'] - 1
-    raw.loc[(raw['microbusiness_density'] == 0)|(raw['target'] > 10),'target'] = 0
-    raw['target'].fillna(0, inplace=True)
-
-    porog = 0.0054
-    raw.loc[(raw['target'] < - porog), 'target'] = - porog
-    raw.loc[(raw['target'] > porog), 'target'] = porog # 1.379034  0.010546  146.796656
-
-    # raw.loc[(raw['target'] > param), 'target'] = param
-    # raw.loc[(raw['target'] < -param), 'target'] = -param
-    return raw
-
-# создание лагов  error 1.379034  0.010546  146.796656
-def build_lag(raw, param): #
-    train_col = []  # список полей используемых в трайне
-    #создаем лаги 'target'
-    for lag in range(1, 12): # 1.379084  0.010497  146.812119
-        raw[f'target_lag{lag}'] = raw.groupby('cfips')['target'].shift(lag)
-        train_col.append(f'target_lag{lag}')
-    # # создаем скользящие средние.
-    for i in [3, 4, 14, 17]:
-        nam = f'EMA_{i}'
-        EMA = pd.Series(raw['target_lag1'].ewm(span=i, adjust=False, min_periods=1).mean(), name=nam)
-        raw[nam] = EMA
-        train_col += [nam]
-    # #создаем значения сумм окон для lag = 1
-    for i in [param]: #без 1.736938 -0.005141  178.270746
-        nam = f'roll_{i}'
-        # сгруппированно по 'cfips' 1-й лаг трансформируем - считаем сумму в окнах
-        ROLL = raw.groupby('cfips')['target_lag1'].transform(lambda s: s.rolling(i, min_periods=1).sum())
-        raw[nam] = ROLL
-        train_col += [nam]
-    # создаем 1 лаг 'microbusiness_density'
-    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
-    raw['mbd_lag1'].fillna(method='bfill', inplace=True)
-    # создаем 1 лаг 'active' - общее количество микропредприятий в округе
-    raw['active_lag1'] = raw.groupby('cfips')['active'].shift(1)
-    train_col += ['mbd_lag1', 'active_lag1']
-    return raw, train_col
-
-# получение трайна и 'y' (игрик) для модели, mes_1 - первый месяц с которого используем трайн для модели
-def train_and_y(raw, mes_1, mes_val, train_col): # train_col - список используемых полей трейна
-    # маска тренировочной выборки 1.408914 -0.097942
-    maska_train = (raw.istest == 0) & (raw.dcount < mes_val) & (raw.dcount >= mes_1)
-    train = raw.loc[maska_train, train_col]
-    y = raw.loc[maska_train, 'target']
-    return train, y
-
-# Получение х_тест и y_тест. mes_val - месяц по которому проверяем модель
-def x_and_y_test(raw, mes_val, train_col): # train_col - список используемых полей трейна
-    # маска валидационной выборки. Валидация по 1 месяцу
-    maska_val = (raw.istest == 0) & (raw.dcount == mes_val)
-    X_test = raw.loc[maska_val, train_col]
-    y_test = raw.loc[maska_val, 'target']
-    return X_test, y_test
-
-# создание блек листа 'cfips'
-def mace_blac_list(raw, mes_1, mes_val, blac_cfips):
-    raw['error'] = vsmape(raw['microbusiness_density'], raw['ypred'])
-    raw['error_last'] = vsmape(raw['microbusiness_density'], raw['mbd_lag1'])
-    # создаем датафрейм со столбцами error и error_last
-    dt = raw.loc[(raw.dcount >= mes_1) & (raw.dcount <= mes_val)].groupby(['cfips', 'dcount'])[['error', 'error_last']].last()
-    # преобразуем dt в серию булевых значений 'miss'
-    dt['miss'] = dt['error'] > dt['error_last'] # ошибка модели > ошибки модели '='
-    seria_dt = dt.groupby('cfips')['miss'].mean()
-    ser_err = dt.groupby('cfips')['error'].mean()
-    ser_error_last = dt.groupby('cfips')['error_last'].mean()
-    df_dt = pd.DataFrame({'cfips': seria_dt.index, 'miss': seria_dt, 'hit':(ser_error_last-ser_err)})
-    seria_dt = seria_dt.loc[seria_dt>=0.50] # оставляем только те, где ['miss'].mean() > 0.5
-    print('количство cfips предсказанных хуже чем моделью =', len(seria_dt))
-    # if not_blec == 1: # 1 - без блек листа
-    #     df_dt.to_csv("C:\\kaggle\\МикроБизнес\\blec_list.csv", index = False)
-    return blac_cfips
 
 # Валидация
 def validacia(raw, start_val, stop_val, rezult, blac_cfips, max_cfips, lastactive, param=1):
@@ -133,111 +54,32 @@ def validacia(raw, start_val, stop_val, rezult, blac_cfips, max_cfips, lastactiv
     rezult.loc[len(rezult.index)] = [lastactive, param, err_mod, dif_err, err_target]
     return rezult
 
-def vsia_model1(raw, mes_1, mes_val, train_col, znachenie, param=1):
-    # получение трайна и 'y' (игрик) для модели
-    X_train, y_train = train_and_y(raw, mes_1, mes_val, train_col)
-    # получение х_тест и y_тест
-    X_test, y_test = x_and_y_test(raw, mes_val, train_col)
-    # Создаем модель
-    model = xgb.XGBRegressor(
-        tree_method="hist", # окончательный запуск без "hist". намного дольше, но точнее
-        n_estimators=850,
-        learning_rate= 0.0071, # важная штука
-        # max_depth=8, этот вариант лучше чем max_leaves=17 но в 2 раза дольше.
-        # В окончательном варианте надо удалить max_leaves=17 и поставить max_depth=8
-        max_leaves=17,
-        #max_bin=4096, #Увеличение повышает оптимальность за счет увеличения времени вычислений.
-        n_jobs=2,
-    )
-    model.fit(X_train, y_train)
+# Моульт для следующего месяца
+def mult1(raw, mes_val, param, param2):
+    kol_mes = 12
+    raw['mbd_lag1'] = raw.groupby('cfips')['microbusiness_density'].shift(1)
+    maska = raw[(raw.first_day_of_month >= '2022-09-01') & (raw.first_day_of_month <= '2022-11-01')]
+    mult_column_to_mult = {f'smape_{mult}': mult for mult in [1.00, 1.0025, 1.005]}
+    mult_to_priority = {1: 1, 1.0025: 0.4, 1.005: 0.2}
+    train_data = raw[maska].copy()
 
-    # Предсказываем
-    y_pred = model.predict(X_test)
+    y_true = train_data['microbusiness_density']
+    for mult_column, mult in mult_column_to_mult.items():
+        train_data['y_pred'] = train_data['mbd_lag1'] + mult
+        train_data[mult_column] = vsmape(y_true, train_data['y_pred']) * mult_to_priority[mult]
 
-    #raw.loc[(raw.dcount == mes_val)&(raw.istest == 0) , 'ypred_target'] = y_pred
-    y_pred = y_pred + 1
-    y_pred = raw.loc[raw.dcount == mes_val, 'mbd_lag1'] * y_pred
-
+    df_agg = train_data.groupby('cfips')[list(mult_column_to_mult.keys())].mean()
+    df_agg['best_mult'] = df_agg.idxmin(axis=1).map(mult_column_to_mult)
+    df_agg= df_agg['best_mult']
+    raw = raw.join(df_agg, on='cfips')
+    #
+    maska = raw.dcount == mes_val
+    raw.loc[maska, 'ypred'] = raw.loc[maska, 'mbd_lag1'] + raw.loc[maska, 'best_mult']
+    raw.loc[maska, 'multi'] = raw.loc[maska, 'best_mult']
+    raw.drop('best_mult', axis=1, inplace = True)
 
 
-    #Предсказано иссдедуемой моделью. Ошибка SMAPE: 1.5717414657304203
-    # сохраняем результат обработки одного цикла
-    raw.loc[raw.dcount == mes_val, 'ypred'] = y_pred
-    # прибавляем значимость столбцов новой модели к значениям предыдущих
-    znachenie['importance'] = znachenie['importance'] + model.feature_importances_.ravel()
-    return raw, znachenie
-
-def new_cfips(raw, lastactive, max_cfips):
-    kol = 3 # количество элементов которое суммируется
-    df = raw[raw['lastactive'] < lastactive].copy()
-    df.sort_values('lastactive', ascending=False, inplace=True)
-    if len(df.index) == 0:
-        return raw
-    list_cfips = df['cfips'].unique() #  массив уникальных cfips, которые группируются
-    lec = len(list_cfips) # количество уникальных cfips, которые группируются
-    le = lec + kol - lec%kol
-    matrica = np.zeros((kol,le)) # матрица каждая строка которой - список cfips которые суммируются
-    fin = le // kol  # номер элемента до которого все cfips использованы в 0-м ряду и больше их не применять
-    for l in range(fin): # цикл по заполнению 0-го ряда
-        for k in range(kol):
-            x = list_cfips[l]
-            matrica[0,l*kol+k] = x
-    sled = fin # номер следующего cfips который вставляется в матрицу
-    for k in range(1, kol): # цикл по заполнению рядов с 1 по последний
-        for l in range(le-1,-1,-1): # цикл в котором заполняется один ряд матрицы
-            if list_cfips[sled] == matrica[k-1, l]:
-                sled+=1
-            matrica[k, l] = list_cfips[sled]
-            if sled == lec-1:
-                sled = fin
-            else:
-                sled+=1
-    # матрица заполнена, далее суммирование cfips
-    # считываем стандартные колонки одинаковые у всех cfips
-    cfips = list_cfips[0]
-    dfcop = raw[raw['cfips']==cfips].copy()
-    dfcop.reset_index(drop=True, inplace=True)
-    dfcop[['row_id', 'cfips', 'county','state', 'first_day_of_month',
-           'microbusiness_density', 'active',
-           'county_i', 'pct_bb', 'pct_college', 'pct_foreign_born',
-           'pct_it_workers', 'median_hh_inc', 'covill', 'covdeat', 'Population',
-           'proc_covill', 'proc_covdeat', 'ypred',
-           'error_otdelno', 'mbd_gladkaya', 'mbd_gladkaya_dif', 'mbd_lag1',
-           'mbd_lag2', 'mbd_lag3', 'EMA_3', 'active_lag1', 'ypred_otdelno',
-           'lastactive']] = 0
-    dfcop['state_i']=100
-
-    for l in range(le):
-        gen_cfips = max_cfips+l+1 # номер нового сгенерированного cfips
-        dfnew = dfcop.copy()
-        dfnew['cfips'] = gen_cfips
-        # maska0 = raw['cfips'] == matrica[0, l]
-        # maska1 = raw['cfips'] == matrica[1, l]
-        # maska2 = raw['cfips'] == matrica[2, l]
-        df0 = raw[raw['cfips'] == matrica[0, l]].copy()
-        df1 = raw[raw['cfips'] == matrica[1, l]].copy()
-        df2 = raw[raw['cfips'] == matrica[2, l]].copy()
-        df0.reset_index(drop=True, inplace=True)
-        df1.reset_index(drop=True, inplace=True)
-        df2.reset_index(drop=True, inplace=True)
-        dfnew['active'] = df0['active'] + df1['active'] + df2['active']
-        dfnew['lastactive'] = df0['lastactive'] + df1['lastactive'] + df2['lastactive']
-        n0 = df0['Population'][0]
-        n1 = df1['Population'][0]
-        n2 = df2['Population'][0]
-        nas = n0 + n1 + n2
-        dfnew['microbusiness_density'] = dfnew['active']/nas
-        dfnew['proc_covill'] = (df0['proc_covill']*n0 + df1['proc_covill']*n1 + df2['proc_covill']*n2)/nas
-        dfnew['pct_college'] = (df0['pct_college']*n0 + df1['pct_college']*n1 + df2['pct_college']*n2)/nas
-        dfnew['median_hh_inc'] = (df0['median_hh_inc']*n0 + df1['median_hh_inc']*n1 + df2['median_hh_inc']*n2)/nas
-
-        if (n0 == 0)|(n1 == 0):
-            print(n0,n1)
-            df = raw[raw['Population'] == 0]
-            okno.vewdf(dfnew)
-        #dfnew.fillna(method="ffill", inplace=True)
-
-        raw = pd.concat([raw,dfnew], ignore_index=True)
+    raw['ypred'].fillna(0, inplace = True)
     return raw
 
 def posle_sglashivfnia(raw, rezult, lastactive = 0):

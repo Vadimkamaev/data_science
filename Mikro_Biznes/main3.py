@@ -170,10 +170,10 @@ def x_and_y_test(raw, mes_val, train_col): # train_col - список испол
     return X_test, y_test
 
 # считаем сколько предсказаний лучше
-def baz_otchet(raw):
+def baz_otchet(raw, maska):
     global start_val, stop_val, minimum
     raw['error_last'] = vsmape(raw['microbusiness_density'], raw['mbd_lag1'])
-    maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (raw.lastactive > minimum)
+    # maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (raw.lastactive > minimum)
     # создаем датафрейм со столбцами error и error_last и индексом 'cfips' + 'dcount'
     dt = raw.loc[maska].groupby(['cfips', 'dcount'])[['error', 'error_last','lastactive']].last()
     # добавляем в dt столбец булевых значений 'miss' - количество ошибок > или <
@@ -187,37 +187,39 @@ def baz_otchet(raw):
 
     return len(seria_dt), ploh, hor, notdif
 
-# считаем сколько предсказаний лучше после 1-й модели
-def otchet(raw):
-    raw['error'] = vsmape(raw['microbusiness_density'], raw['ypred'])
-    l, ploh, hor, notdif = baz_otchet(raw)
-    raw['better'] = 0 # 'better'=1, если модель лучше чем "=", иначе 'better'=0
-    raw.loc[raw['error_last'] > raw['error'], 'better'] = 1
-    # 'trend_ok'=0 если модель угадала тренд
-    raw['trend_ok'] = 0
-    maska = (raw['ypred'] >= raw['mbd_lag1']) & (raw['microbusiness_density'] >= raw['mbd_lag1'])
-    raw.loc[maska, 'trend_ok'] = 1
-
-    maska = (raw['ypred'] <= raw['mbd_lag1']) & (raw['microbusiness_density'] <= raw['mbd_lag1'])
-    raw.loc[maska, 'trend_ok'] = 1
+def otchet_universal(raw, col, col_dif, maska):
+    target = raw.loc[maska, 'microbusiness_density']
+    ypred = raw.loc[maska, col]
+    err_mod = smape(target, ypred)
+    mbd_lag1 = raw.loc[maska, col_dif]
+    err_last = smape(target, mbd_lag1)
+    dif_err = err_last - err_mod  # положительная - хорошо
+    print(f'Предсказано моделью. Ошибка SMAPE: {err_mod}, Разность c {col_dif} (чем >, тем лучше):', dif_err)
+    raw['error'] = vsmape(raw['microbusiness_density'], raw[col])
+    l, ploh, hor, notdif = baz_otchet(raw, maska)
     print('количство cfips предсказанных хуже чем моделью =', l,
           'Отношение плохих предсказаний к хорошим', ploh/hor)
     print('Кол. хороших', hor, 'Плохих', ploh, 'Равных', notdif)
 
+# считаем сколько предсказаний лучше после 1-й модели
+def otchet(raw):
+    maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (raw.lastactive > minimum)
+    otchet_universal(raw, 'ypred', 'mbd_lag1', maska)
+
 # считаем сколько предсказаний лучше после 2-й модели
-def model2_otchet(raw):
-    raw['error'] = vsmape(raw['microbusiness_density'], raw['ypred'])
-    l, ploh, hor, notdif = baz_otchet(raw)
+def otchet_itog(raw):
+    maska = (raw.dcount >= start_val) & (raw.dcount <= stop_val) & (raw.lastactive > minimum)
     print('')
-    print('------ Отчет после выполнения оптимизации 2-й модели ------')
-    print('количство cfips предсказанных хуже чем моделью № 1 =', l,
-          'Отношение плохих предсказаний к хорошим', ploh/hor)
-    print('Кол. хороших', hor, 'Плохих', ploh, 'Равных', notdif)
-    raw['error'] = vsmape(raw['microbusiness_density'], raw['y_inegr'])
-    l, ploh, hor, notdif = baz_otchet(raw)
-    print('количство cfips предсказанных хуже чем моделью № 2 =', l,
-          'Отношение плохих предсказаний к хорошим', ploh/hor)
-    print('Кол. хороших', hor, 'Плохих', ploh, 'Равных', notdif)
+    print('------ Итоговый отчет ------')
+    print('')
+    print('1. Модель mult в сравнении с моделью = last')
+    otchet_universal(raw, 'ymult', 'mbd_lag1', maska)
+    print('')
+    print('2. Модель XGBRegressor 1 в сравнении с моделью = last')
+    otchet_universal(raw, 'ypred', 'mbd_lag1', maska)
+    print('')
+    print('3. Модель mix в сравнении с моделью = last')
+    otchet_universal(raw, 'y_inegr', 'mbd_lag1', maska)
 
 # вывод на печать информацию по качеству работы модели в каждом штате
 def print_state(raw, maska):
@@ -878,46 +880,12 @@ def work_granica(raw, row_state, maska):
 
 # ЗДЕСЬ ЗАКАНЧИВАЕТСЯ ОПТИМИЗАЦИЯ МОДЕЛЕЙ. Далее выполнение моделей.
 
-# ЦФИПС МОДЕЛЬ
-def cfips_1_mes(raw, mes_val, kol_mes):
-    for cfips in raw['cfips'].unique():
-        maska = (raw.cfips == cfips) & (raw.dcount < mes_val) & (raw.dcount >= mes_val-kol_mes)
-        target = raw.loc[maska, 'microbusiness_density']
-        ypred = raw.loc[maska, 'ypred']
-        err_mod = smape(target, ypred)
-        mbd_lag1 = raw.loc[maska, 'mbd_lag1']
-        err_last = smape(target, mbd_lag1)
-        maska = (raw.cfips == cfips) & (raw.dcount == mes_val)
-        if err_mod > err_last:
-            raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'mbd_lag1']
-    return raw
-
-
-def cfips_model(raw):
-    global start_val, stop_model, main_start_val
-    start_val = main_start_val
-    for kol_mes in range(2,20): # количество месяцев учпитываемых в модели
-        for mes_val in tqdm(range(main_start_val, stop_model + 1)):
-            raw = cfips_1_mes(raw, mes_val, kol_mes)
-
-            # mes_1 = 2  #
-            # y_pred, znachenie = vsia_model(raw, mes_1, mes_val, train_col, znachenie, blac_cfips, param=0)
-            # raw = post_model(raw, y_pred, mes_val, blac_test_cfips)
-        rezult = model2_validacia(raw, rezult, kol_mes, 0, 0)
-        rezult.sort_values(by='err_2mod', inplace=True, ascending=True)
-        print(rezult.head(22))
-        # otchet(raw, start_val, mes_val)
-
-
 # выполнение можелей variant_model, trend_ok, granica
 def work_state(raw, df_state):
     global start_val, stop_model
     rezult = pd.DataFrame(columns=['param1', 'param2', 'param3', 'err_2mod', 'dif_err_1mod', 'dif_err_last_mod'])
     maska = (raw.dcount >= start_val) & (raw.dcount <= stop_model)
     raw.loc[maska, 'y_inegr'] = raw.loc[maska, 'ypred']
-
-    cfips_model(raw)
-
 
     # for i, row_state in df_state.iterrows():
     #     raw = work_post_var_model(raw, row_state, maska)
@@ -1012,14 +980,14 @@ def model2_otvet(raw):
 
 if __name__ == "__main__":
     N_modeli = 2
-    minimum = 60 # ниже этого значения 'lastactive' считаем что 'microbusiness_density' не меняется
+    minimum = 140 # ниже этого значения 'lastactive' считаем что 'microbusiness_density' не меняется
     # глобальные переменные
 
     stop_model = 41 # последний месяц до которого работает модель, включая месяцы теста
-    stop_val = 40  # последний месяц валидации до которого проверяем модель
+    stop_val = 38#40  # последний месяц валидации до которого проверяем модель
     main_start_val = 28 # первый месяц окончательной валидации с которого проверяем модель
 
-    start_val = 6  # первый месяц предварительной валидации с которого проверяем модель
+    start_val = 28#6  # первый месяц предварительной валидации с которого проверяем модель
     pd.options.display.width = 0 # для печати
 
     # НАЧАЛЬНАЯ ЗАГРУЗКА
@@ -1058,7 +1026,7 @@ if __name__ == "__main__":
 
     # ОПРЕДЕЛЯЕМ В КАКОМ СЛУЧАЕ КАКУЮ МОДЕЛЬ ПРИМЕНЯТЬ
 
-    raw = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle_2_model{N_modeli}.csv")
+    raw = pd.read_csv(f"C:\\kaggle\\МикроБизнес\\raw_posle1modeli{N_modeli}.csv")
     main_post_model(raw, N_modeli) # выбираем первую модель или модель не изменения 'microbusiness_density'
 
     # СОЗДАЕМ ФАЙЛ С РЕЗУЛЬТАТОМ
