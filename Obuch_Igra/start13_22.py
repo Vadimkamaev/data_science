@@ -43,13 +43,30 @@ def feature_engineer(train):
     new_train = new_train.fillna(-1)
     return new_train
 
+def feature_quest(new_train, train, q):
+    rooms = {14: ['tunic.historicalsociety.closet_dirty'],  # 0.611685
+             15: ['tunic.historicalsociety.stacks', 'tunic.flaghouse.entry',
+             'tunic.historicalsociety.frontdesk'],  # 0.580154
+             16: ['tunic.historicalsociety.closet_dirty', 'tunic.library.microfiche',
+                  'tunic.historicalsociety.cage'],  # 0.514063
+             17: ['tunic.kohlcenter.halloffame'],  # 0.544310
+             18: ['tunic.drycleaner.frontdesk']  # 0.503757
+             }
+
+    train_q = new_train.copy()
+    for room in rooms[q]:
+        train_q['l_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['index'].count()
+        train_q['t_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['delt_time'].sum()
+    return train_q
+
 def dop_feature(new_train, train, col, param):
-    new_train['l_'+col+' '+param] = train[train[col]==param].groupby(['session_id'])['index'].count()
-    new_train['t_' + col + ' ' + param] = train[train[col] == param].groupby(['session_id'])['delt_time'].sum()
+    new_train['l_'+col+' '+str(param)] = train[train[col]==param].groupby(['session_id'])['index'].count()
+    new_train['t_' + col + ' ' + str(param)] = train[train[col] == param].groupby(['session_id'])['delt_time'].sum()
     return new_train
 
-def one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, param):
+def one_vopros(df, train_index, targets, test_index, models, oof, t, param):
     global gb_param
+    # print(t, ', ', end='')
     # TRAIN DATA
     train_x = df.iloc[train_index]
     train_users = train_x.index.values
@@ -64,9 +81,9 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, p
     model = xgb.XGBClassifier(
         tree_method="hist",
         objective= 'binary:logistic',
-        n_estimators = gb_param[t][0],
-        max_depth = gb_param[t][1],
-        learning_rate = gb_param[t][2], #param, #0.057,
+        n_estimators = gb_param[t][0],#param,
+        max_depth = gb_param[t][1],#5,
+        learning_rate = gb_param[t][2],# 0.057,
         alpha=8,
         subsample= 0.4,
         colsample_bytree=0.8,
@@ -74,32 +91,32 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, p
         # max_bin=4096,
         n_jobs=2
     )
-    X = train_x[FEATURES].astype('float32')
+    X = train_x.astype('float32')
     Y = train_y['correct']
     model.fit(X, Y)
 
     # SAVE MODEL, PREDICT VALID OOF
     models[f'{t}'] = model
-    oof.loc[valid_users, t] = model.predict_proba(valid_x[FEATURES].astype('float32'))[:, 1]
+    oof.loc[valid_users, t] = model.predict_proba(valid_x.astype('float32'))[:, 1]
     return models, oof
 
-def preds(df, targets, param):
+def preds(new_train, train, targets, param):
     global quests
-    FEATURES = [c for c in df.columns if c != 'level_group']
-    ALL_USERS = df.index.unique()
-    print('В трайне', len(FEATURES), 'колонок')
+    ALL_USERS = new_train.index.unique()
+    # print('В трайне', len(train.columns), 'колонок')
     print('В трайне', len(ALL_USERS), 'пользователей')
-
     gkf = GroupKFold(n_splits=5)
     oof = pd.DataFrame(data=np.zeros((len(ALL_USERS), 19)), index=ALL_USERS)
     models = {}
     # ВОПРОСЫ
     for q in quests:
         print('### quest', q, '==> Fold ==>', end='')
+        train_q = feature_quest(new_train, train, q)
+
         # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
-        for i, (train_index, test_index) in enumerate(gkf.split(X=df, groups=df.index)):
+        for i, (train_index, test_index) in enumerate(gkf.split(X=train_q, groups=train_q.index)):
             print(' ', i + 1, end='')
-            models, oof = one_vopros(df, train_index, targets, test_index, models, oof, q, FEATURES, param)
+            models, oof = one_vopros(train_q, train_index, targets, test_index, models, oof, q, param)
         print()
 
     # ВСТАВЬТЕ ИСТИННЫЕ МЕТКИ В ФРЕЙМ ДАННЫХ С 18 СТОЛБЦАМИ
@@ -186,52 +203,63 @@ def read_csv_loc(file):
 
 def main():
     global quests, gb_param
-    vse_quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]
-    gb_param = {4: [300, 5, 0.07],
-                5: [200, 3, 0.06],
-                6: [360, 3, 0.065],
-                7: [410, 5, 0.055],
-                8: [100, 4, 0.065],
-                9: [250, 5, 0.06],
-                10:[510, 5, 0.075],
-                11:[150, 5, 0.045],
-                12:[660, 7, 0.095],
-                13:[670, 11, 0.085]
+    vse_quests = [14, 15, 16, 17, 18]
+    gb_param = {14: [275, 5, 0.057], # 0.6105
+                15: [540, 5, 0.05], # 0.5768
+                16: [695, 6, 0.07], # 0.5067
+                17: [325, 5, 0.06], # 0.5429
+                18: [505, 5, 0.07] # 0.501
               }      #1-й элемент списка n_estimators, 2-й max_depth,
+    rooms = {14: ['tunic.historicalsociety.closet_dirty', # 0.611685
+                  'tunic.historicalsociety.collection_flag', # 0.610912
+                  'tunic.library.frontdesk'], # 0.610788
+             15: ['tunic.historicalsociety.stacks', # 0.579155
+                  'tunic.flaghouse.entry', # 0.578392
+                  'tunic.historicalsociety.frontdesk'], # 0.577933
+             16: ['tunic.historicalsociety.closet_dirty', # 0.511145
+                  'tunic.library.microfiche', # 0.510837
+                  'tunic.historicalsociety.cage'], # 0.509886
+             17: ['tunic.kohlcenter.halloffame'], # 0.544310
+             18: ['tunic.drycleaner.frontdesk', # 0.506152
+                  'tunic.library.microfiche'] # 0.503757
+            }
+    text_fqids = {
+
+    }
     rezult = pd.DataFrame(columns=['param', 'quest', 'rezultat'])
-    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_5_12.csv")
+    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_13_22.csv")
     targets = deftarget()
     # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
-    # col = 'event_name' # перебор колонок для трайна
-    # ls = train[col].unique() # список значений колонки
+    col = 'text_fqid' # перебор колонок для трайна
+    ls = train[col].unique() # список значений колонки
 
-    # for quest in vse_quests:
-    #     quests = [quest]
+    for quest in vse_quests:
+        quests = [quest]
 
-    if True:
-        quests = vse_quests
-        quest = 0
+    # if True:
+    #     quests = vse_quests
+    #     quest = 0
 
-        for param in range(5, 6, 5):
-            param /= 1000
+        for param in ls:
+            # param = str(param)
             train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
             train['delt_time'] = train['elapsed_time'].diff(1)
             train['delt_time'].fillna(0, inplace=True)
             train['delt_time'].clip(0, 103000, inplace=True)
             new_train = feature_engineer(train)
 
-            # new_train = dop_feature(new_train, train, col, param)
+            new_train = dop_feature(new_train, train, col, param)
 
-            oof, true = preds(new_train, targets, param)
+            oof, true = preds(new_train, train, targets, param)
             otvet(oof, true, param, quest, rezult)
             rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
             print(rezult.head(22))
             for q in rezult.quest.unique():
                 print('вопрос =', q)
-                print(rezult[rezult.quest==q].head())
+                print(rezult[rezult.quest==q].head(10))
 
 
-quests = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+quests = [14,15,16,17,18]
 
 if __name__ == "__main__":
     main()

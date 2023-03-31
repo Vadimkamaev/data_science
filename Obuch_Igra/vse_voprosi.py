@@ -6,17 +6,14 @@ import xgboost as xgb
 from sklearn.metrics import f1_score
 from servise_ds import okno
 
+
 # считывание таргета из файла train_labels.csv
 def deftarget():
     targets = pd.read_csv('C:\\kaggle\\ОбучИгра\\train_labels.csv')
     targets['q'] = targets['session_id'].apply(lambda x: int(x.split('_')[-1][1:]))
     targets['session'] = targets.session_id.apply(lambda x: int(x.split('_')[0]))
-    question_means = targets.groupby('q').correct.agg('mean')
-    porog = 0.62
-    df = pd.DataFrame({'veroiatnoct':question_means, 'preds': (question_means > porog).astype('int32'),
-                       'tochnost' : (question_means-porog).abs()})
-    print(df)
     return targets
+
 
 def feature_engineer(train):
     # имена, используемых в модели, категориальных полей трайна
@@ -47,12 +44,14 @@ def feature_engineer(train):
     new_train = new_train.fillna(-1)
     return new_train
 
+
 def dop_feature(new_train, train, col, param):
-    new_train['l_'+col+' '+param] = train[train[col]==param].groupby(['session_id'])['index'].count()
+    new_train['l_' + col + ' ' + param] = train[train[col] == param].groupby(['session_id'])['index'].count()
     new_train['t_' + col + ' ' + param] = train[train[col] == param].groupby(['session_id'])['delt_time'].sum()
     return new_train
 
-def one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, param):
+
+def one_vopros(df, train_index, targets, test_index, models, t, FEATURES, param):
     print(t, ', ', end='')
     # TRAIN DATA
     train_x = df.iloc[train_index]
@@ -67,62 +66,65 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, p
     # TRAIN MODEL
     model = xgb.XGBClassifier(
         tree_method="hist",
-        objective= 'binary:logistic',
-        n_estimators = 510,
+        objective='binary:logistic',
+        n_estimators=510,
         max_depth=5,  # param,
         learning_rate=0.057,
         alpha=8,
-        subsample= 0.4,
+        subsample=0.4,
         colsample_bytree=0.8,
-        seed = 40,
+        seed=40,
         # max_bin=4096,
-        n_jobs=1
+        n_jobs=2
     )
     X = train_x[FEATURES].astype('float32')
     Y = train_y['correct']
     model.fit(X, Y)
 
-    # SAVE MODEL, PREDICT VALID OOF
-    models[f'1_4_{t}'] = model
-    oof.loc[valid_users, t - 1] = model.predict_proba(valid_x[FEATURES].astype('float32'))[:, 1]
-    return models, oof
+    # SAVE MODEL, PREDICT VALID preds_user_x_vopros
+    models[f'{t}'] = model
+    preds_user_x_vopros.loc[valid_users, t] = model.predict_proba(valid_x[FEATURES].astype('float32'))[:, 1]
+    return models
 
-def preds(df, targets, param):
-    FEATURES = [c for c in df.columns if c != 'level_group']
-    ALL_USERS = df.index.unique()
+
+def preds(train, targets, param):
+    global quests, preds_user_x_vopros
+    FEATURES = [c for c in train.columns if c != 'level_group']
+    ALL_USERS = train.index.unique()
     print('В трайне', len(FEATURES), 'колонок')
     print('В трайне', len(ALL_USERS), 'пользователей')
 
-    gkf = GroupKFold(n_splits=param)
-    # gkf = GroupKFold(n_splits=5)
-    oof = pd.DataFrame(data=np.zeros((len(ALL_USERS), 18)), index=ALL_USERS)
+    gkf = GroupKFold(n_splits=5)
     models = {}
 
     # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
-    for i, (train_index, test_index) in enumerate(gkf.split(X=df, groups=df.index)):
+    for i, (train_index, test_index) in enumerate(gkf.split(X=train, groups=train.index)):
         print('### Fold', i + 1, '==>', end='')
         # ПРОВЕРЬТЕ ВОПРОСЫ С 1 ПО 3
-        for t in range(1, 4):
-            models, oof = one_vopros(df, train_index, targets, test_index, models, oof, t, FEATURES, param)
+        for t in quests:
+            models = one_vopros(train, train_index, targets, test_index, models, t, FEATURES, param)
         print()
 
     # ВСТАВЬТЕ ИСТИННЫЕ МЕТКИ В ФРЕЙМ ДАННЫХ С 18 СТОЛБЦАМИ
-    true = oof.copy()
-    for k in range(3):
+    true = preds_user_x_vopros.copy()
+    for k in quests:
         # GET TRUE LABELS
-        tmp = targets.loc[targets.q == k + 1].set_index('session').loc[ALL_USERS]
+        tmp = targets.loc[targets.q == k].set_index('session').loc[ALL_USERS]
         true[k] = tmp.correct.values
-    return oof, true
+    return true
 
-def otvet(oof, true, param, rezult):
-    #ВЫЧИСЛЕНИЕ ПОРОГА ДЛЯ КАЖДОГО ВОПРОСА ОТДЕЛЬНО
-    scores = []; thresholds = []
-    for k in range(3):
+
+def otvet(true, param, rezult):
+    global quests, preds_user_x_vopros
+    # ВЫЧИСЛЕНИЕ ПОРОГА ДЛЯ КАЖДОГО ВОПРОСА ОТДЕЛЬНО
+    scores = [];
+    thresholds = []
+    for k in quests:
         best_score = 0
         best_threshold = 0
         for threshold in np.arange(-0.01, 1.01, 0.01):
             # print(f'{threshold:.02f}, ',end='')
-            pred_s = (oof[k].values > threshold).astype('int')
+            pred_s = (preds_user_x_vopros[k].values > threshold).astype('int')
             tru = true[k].values.reshape((-1))
             m = f1_score(tru, pred_s, average='macro')
             if m > best_score:
@@ -130,35 +132,36 @@ def otvet(oof, true, param, rezult):
                 best_threshold = threshold
         thresholds.append(best_threshold)
         print('')
-        print(f'Вопрос № {k+1} best_score = {best_score} best_threshold = {best_threshold}')
+        print(f'Вопрос № {k + 1} best_score = {best_score} best_threshold = {best_threshold}')
 
     best_threshold = 0.61
 
     print('Результат для каждого вопроса с общим порогом:')
-    for k in range(3):
+    for k in quests:
         # Считаем F1 SCORE для каждого вопроса
         tru = true[k].values
-        y_pred = oof[k].values
+        y_pred = preds_user_x_vopros[k].values
         m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
         print(f'Q{k}: F1 =', m)
 
     # Считаем F1 SCORE для всех вопросов
-    tru3 = true[[0, 1, 2]]
+    tru3 = true[quests]
     tru = tru3.values.reshape((-1))
-    oof3 = oof[[0, 1, 2]]
+    oof3 = preds_user_x_vopros[quests]
     y_pred = oof3.values.reshape((-1))
     m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
     print('==> Для всех вопросов =', m)
 
-    rezult.loc[len(rezult.index)] = [param, thresholds[0], thresholds[1], thresholds[2], m]
+    rezult.loc[len(rezult.index)] = [param, 0, m]
 
     print('Результат для каждого вопроса с индивидуальным порогом:')
-    for k in range(3):
+    for k in quests:
         # Считаем F1 SCORE для каждого вопроса
         tru = true[k].values
-        y_pred = oof[k].values
-        m = f1_score(tru, (y_pred > thresholds[k]).astype('int'), average='macro')
+        y_pred = preds_user_x_vopros[k].values
+        m = f1_score(tru, (y_pred > thresholds[k - quests[0]]).astype('int'), average='macro')
         print(f'Q{k}: F1 =', m)
+
 
 def read_csv_loc(file):
     dtypes = {"session_id": 'int64',
@@ -170,77 +173,68 @@ def read_csv_loc(file):
               "page": np.float16,
               "room_coor_x": np.float16,
               "room_coor_y": np.float16,
-              # "screen_coor_x": np.float16,
-              # "screen_coor_y": np.float16,
+              "screen_coor_x": np.float16,
+              "screen_coor_y": np.float16,
               "hover_duration": np.float32,
-              # "text": 'category',
+              "text": 'category',
               "fqid": 'category',
               "room_fqid": 'category',
               "text_fqid": 'category',
-              # "fullscreen": np.int8,
-              # "hq": np.int8,
-              # "music": np.int8,
+              "fullscreen": np.int8,
+              "hq": np.int8,
+              "music": np.int8,
               "level_group": 'category'
               }
-    train = pd.read_csv(file, dtype=dtypes)
+    use_col = ['session_id', 'index', 'elapsed_time', 'event_name', 'name', 'level', 'page',
+               'hover_duration', 'fqid', 'room_fqid', 'text_fqid', 'level_group']
+    train = pd.read_csv(file, dtype=dtypes, usecols=use_col)
     return train
 
 
 def main():
-    rezult = pd.DataFrame(columns=['param', 'b_h1', 'b_h2', 'b_h3', 'rezultat'])
-    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_0_4.csv")
+    global quests, preds_user_x_vopros
+    rezult = pd.DataFrame(columns=['param', 'param2', 'rezultat'])
+    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train.csv")
     targets = deftarget()
-    col = 'event_name'
-    ls = train[col].unique()
-    for param in range(2, 3, 1):
-        train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
-        train['delt_time'] = train['elapsed_time'].diff(1)
-        train['delt_time'].fillna(0, inplace=True)
-        train['delt_time'].clip(0, 103000, inplace=True)
-        new_train = feature_engineer(train)
 
-        # new_train = dop_feature(new_train, train, col, param)
+    # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
+    col = 'event_name'  # перебор колонок для трайна
+    ls = train[col].unique()  # список значений колонки
 
-        oof, true = preds(new_train, targets, param)
-        otvet(oof, true, param, rezult)
-    rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
+    train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
+    train['delt_time'] = train['elapsed_time'].diff(1)
+    train['delt_time'].fillna(0, inplace=True)
+    train['delt_time'].clip(0, 103000, inplace=True)
+
+    ALL_USERS = train.session_id.unique()
+
+    for param in [1]:  # ls: #range(1, 2, 1):
+
+        preds_user_x_vopros = pd.DataFrame(data=np.zeros((len(ALL_USERS), 19)), index=ALL_USERS)
+
+        quests = [1]
+        new_train = feature_engineer(train[train['level_group'] == '0-4'])
+        # new_train = dop_feature(new_train, train[train['level_group'] == '0-4'], col, param)
+
+        true = preds(new_train, targets, param)
+
+        quests = [4,5,6,7,8,9,10,11]
+        new_train = feature_engineer(train[train['level_group'] == '5-12'])
+        # new_train = dop_feature(new_train, train[train['level_group'] == '5-12'], col, param)
+        true = preds(new_train, targets, param)
+
+        quests = [14, 15, 16, 17]
+        new_train = feature_engineer(train[train['level_group'] == '13-22'])
+        # new_train = dop_feature(new_train, train[train['level_group'] == '13-22'], col, param)
+        true = preds(new_train, targets, param)
+
+        quests = [1] + [4,5,6,7,8,9,10,11] + [14, 15, 16, 17]
+        otvet(true, param, rezult)
+    rezult.sort_values(by='rezultat', inplace=True, ascending=False)
     print(rezult.head(22))
-    print('rezult.b_h1.mean()', rezult.b_h1.mean())
-    print('rezult.b_h2.mean()', rezult.b_h2.mean())
-    print('rezult.b_h3.mean()', rezult.b_h3.mean())
 
+
+# quests = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+kol_quest = len(quests)
 if __name__ == "__main__":
     main()
-
-
-
-
-
-# df.to_csv("C:\\kaggle\\ОбучИгра\\train_0_4.csv", index=False)
-
-# ['session_id' - 11779 nunique,
-# 'index' от 0 до 20473 - 20348 nunique,
-# 'elapsed_time',
-# 'event_name' - 11 nunique, ['cutscene_click', 'person_click', 'navigate_click', 'observation_click',
-#                             'notification_click', 'object_click', 'object_hover', 'map_hover', 'map_click',
-#                             'checkpoint', 'notebook_click']
-
-# 'name' - 6 nunique, ['basic', 'undefined', 'close', 'open', 'prev', 'next']
-
-# 'level' - от 0 до 22, 'page' - 97.83 % null,
-# 'room_coor_x', 'room_coor_y', 'screen_coor_x', 'screen_coor_y', 'hover_duration' - 92.4 % null,
-# 'text' - 594 nunique, 'fqid' - 127 nunique,
-
-# 'room_fqid' - 19 - nunique, ['tunic.capitol_0.hall', 'tunic.historicalsociety.basement',
-#                          'tunic.historicalsociety.closet', 'tunic.historicalsociety.collection',
-#                          'tunic.historicalsociety.entry', 'tunic.historicalsociety.stacks',
-#                          'tunic.kohlcenter.halloffame']
-
-# 'text_fqid' - 126 nunique,
-# 'level_group' - 3 nunique]
-
-
-
-
-
-# missed_columns = ["page", "hover_duration"]

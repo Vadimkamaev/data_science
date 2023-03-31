@@ -1,5 +1,6 @@
 from servise_ds import okno
 import pandas as pd
+import numpy as np
 
 #сверяем сходство 2-х файлов
 def sverka():
@@ -18,7 +19,7 @@ def sverka():
     file3.sort_values(by='raznost', inplace=True)
     print(file3['raznost'].sum())
     okno.vewdf(file1)
-sverka()
+# sverka()
 
 
 def melk1():
@@ -40,8 +41,41 @@ def melk1():
 #melk1()
 
 
+def read_csv_loc(file):
+    dtypes = {"session_id": 'int64',
+              "index": np.int16,
+              "elapsed_time": np.int32,
+              "event_name": 'category',
+              "name": 'category',
+              "level": np.int8,
+              "page": np.float16,
+              "room_coor_x": np.float16,
+              "room_coor_y": np.float16,
+              # "screen_coor_x": np.float16,
+              # "screen_coor_y": np.float16,
+              "hover_duration": np.float32,
+              # "text": 'category',
+              "fqid": 'category',
+              "room_fqid": 'category',
+              "text_fqid": 'category',
+              # "fullscreen": np.int8,
+              # "hq": np.int8,
+              # "music": np.int8,
+              "level_group": 'category'
+              }
+    train = pd.read_csv(file, dtype=dtypes)
+    return train
 
+def melk2():
+    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_13_22.csv")
 
+    # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
+    col = 'text_fqid' # перебор колонок для трайна
+    ls = train[col].unique() # список значений колонки
+    for param in ls:
+        print(param)
+
+melk2()
 
 
 # rez = pd.read_csv("C:\\kaggle\\белки\\train1.csv")
