@@ -26,18 +26,18 @@ def feature_engineer(train):
     for c in EV_NAME:
         new_train['l_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['index'].count()
         new_train['t_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['delt_time'].sum()
-    train = train[train['name'] == 'basic']
-    new_train['finish'] = train.groupby(['session_id'])['elapsed_time'].last(1)  # ? надо ли?
-    new_train['len'] = train.groupby(['session_id'])['index'].count()
+    maska = train['name'] == 'basic'
+    new_train['finish'] = train[maska].groupby(['session_id'])['elapsed_time'].last(1)  # ? надо ли?
+    new_train['len'] = train[maska].groupby(['session_id'])['index'].count()
     for c in CATS:
-        tmp = train.groupby(['session_id'])[c].agg('nunique')
+        tmp = train[maska].groupby(['session_id'])[c].agg('nunique')
         tmp.name = tmp.name + '_nunique'
         new_train = new_train.join(tmp)
     for c in NUMS:
-        tmp = train.groupby(['session_id'])[c].agg('mean')
+        tmp = train[maska].groupby(['session_id'])[c].agg('mean')
         new_train = new_train.join(tmp)
     for c in NUMS:
-        tmp = train.groupby(['session_id'])[c].agg('std')
+        tmp = train[maska].groupby(['session_id'])[c].agg('std')
         tmp.name = tmp.name + '_std'
         new_train = new_train.join(tmp)
     new_train = new_train.fillna(-1)
@@ -57,6 +57,25 @@ def feature_quest(new_train, train, q):
     for room in rooms[q]:
         train_q['l_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['index'].count()
         train_q['t_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['delt_time'].sum()
+
+    text_fqids = {
+        14: ['tunic.historicalsociety.frontdesk.archivist_glasses.confrontation_recap'], #0.6182001353192074
+        15: ['tunic.historicalsociety.entry.groupconvo_flag',
+             'tunic.flaghouse.entry.colorbook', # F1 = 0.5904442045737962
+             'tunic.historicalsociety.entry.boss.flag'], # 0.5982452417971184
+        16: ['tunic.historicalsociety.entry.boss.flag', # 0.508959523084263
+             'tunic.historicalsociety.entry.wells.flag', # 0.5115978995166816
+             'tunic.historicalsociety.cage.teddy.trapped', #0.5138155041323106
+             'tunic.historicalsociety.basement.savedteddy'],
+        17: ['tunic.historicalsociety.frontdesk.key'], # 0.5432409135067107
+        18: ['tunic.capitol_2.hall.boss.haveyougotit', #0.5030042
+             'tunic.flaghouse.entry.flag_girl.symbol_recap',#] # 0.50779819
+             'tunic.library.frontdesk.worker.flag']
+    }
+    for text_fqid in text_fqids[q]:
+        train_q['l_text_fqid_' + text_fqid] = train[train['text_fqid'] == text_fqid].groupby(['session_id'])['index'].count()
+        train_q['t_text_fqid_' + text_fqid] = train[train['text_fqid'] == text_fqid].groupby(['session_id'])['delt_time'].sum()
+
     return train_q
 
 def dop_feature(new_train, train, col, param):
@@ -89,7 +108,7 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, param):
         colsample_bytree=0.8,
         seed = 40,
         # max_bin=4096,
-        n_jobs=2
+        n_jobs=1
     )
     X = train_x.astype('float32')
     Y = train_y['correct']
@@ -224,7 +243,16 @@ def main():
                   'tunic.library.microfiche'] # 0.503757
             }
     text_fqids = {
-
+        14: ['tunic.historicalsociety.frontdesk.archivist_glasses.confrontation_recap',
+             'tunic.library.microfiche.reader_flag.paper2.bingo'],
+        15: ['tunic.historicalsociety.entry.groupconvo_flag',
+             'tunic.flaghouse.entry.colorbook'],
+        16: ['tunic.historicalsociety.entry.boss.flag',
+             'tunic.historicalsociety.basement.ch3start'],
+        17: ['tunic.historicalsociety.frontdesk.key',
+             'tunic.wildlife.center.expert.recap'],
+        18: ['tunic.capitol_2.hall.boss.haveyougotit',
+             'tunic.wildlife.center.coffee']
     }
     rezult = pd.DataFrame(columns=['param', 'quest', 'rezultat'])
     train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_13_22.csv")
@@ -233,14 +261,14 @@ def main():
     col = 'text_fqid' # перебор колонок для трайна
     ls = train[col].unique() # список значений колонки
 
-    for quest in vse_quests:
-        quests = [quest]
+    # for quest in vse_quests:
+    #     quests = [quest]
 
-    # if True:
-    #     quests = vse_quests
-    #     quest = 0
+    if True:
+        quests = vse_quests
+        quest = 0
 
-        for param in ls:
+        for param in [1]:# ls:
             # param = str(param)
             train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
             train['delt_time'] = train['elapsed_time'].diff(1)
@@ -248,7 +276,7 @@ def main():
             train['delt_time'].clip(0, 103000, inplace=True)
             new_train = feature_engineer(train)
 
-            new_train = dop_feature(new_train, train, col, param)
+            # new_train = dop_feature(new_train, train, col, param)
 
             oof, true = preds(new_train, train, targets, param)
             otvet(oof, true, param, quest, rezult)

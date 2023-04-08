@@ -154,78 +154,83 @@ def dop_feature2(new_train, train, col, param, col2, param2):
         train[(train[col]==param)&(train[col2]==param2)].groupby(['session_id'])['delt_time'].sum()
     return new_train
 
-def one_vopros(df, train_index, targets, test_index, models, oof, t, param, param2):
-    global gb_param
-    # print(t, ', ', end='')
+def one_fold(df, train_users, targets, test_users, models, preds_np, param, param2):
+    global gb_param, quests
     # TRAIN DATA
-    train_x = df.iloc[train_index]
-    train_users = train_x.index.values
-    train_y = targets.loc[targets.q == t].set_index('session').loc[train_users]
+    train_x = df[df['session_id'].isin(train_users)]
+    maska = targets['q'].isin(quests)
+    train_y = targets[maska]
+    train_y = train_y[train_y['session'].isin(train_users)]
+    train_y.sort_values(by=['q','session'], inplace=True)
+
+    # train_y = train_y.set_index('session')
+    # train_y = train_y.loc[train_users]
+
 
     # VALID DATA
-    valid_x = df.iloc[test_index]
-    valid_users = valid_x.index.values
-    valid_y = targets.loc[targets.q == t].set_index('session').loc[valid_users]
+    maska = df['session_id'].isin(test_users)
+    valid_x = df[maska]
+    # valid_users = valid_x.index.values
+    # valid_y = targets.loc[targets.q == t].set_index('session').loc[valid_users]
 
     # TRAIN MODEL
     model = CatBoostClassifier(
         n_estimators = 280,#param, #param
         learning_rate= 0.045,#param2,
-        depth = 3
+        depth = 3,
+        cat_features = ['q'],
+        ignored_features = ['session_id']
     )
-
-    #     xgb.XGBClassifier(
-    #     tree_method="hist",
-    #     objective= 'binary:logistic',
-    #     n_estimators = gb_param[t][0],#,
-    #     max_depth = gb_param[t][1],#5,
-    #     learning_rate = gb_param[t][2],# 0.057,
-    #     alpha=8,
-    #     subsample= 0.4,
-    #     colsample_bytree=0.8,
-    #     seed = 40,
-    #     # max_bin=4096,
-    #     n_jobs=2
-    # )
-    X = train_x.astype('float32')
+    X = train_x#.astype('float32')
     Y = train_y['correct']
     model.fit(X, Y, verbose=False)
 
-    # SAVE MODEL, PREDICT VALID OOF
-    models[f'{t}'] = model
-    oof.loc[valid_users, t] = model.predict_proba(valid_x.astype('float32'))[:, 1]
-    return models, oof
+    # SAVE MODEL, PREDICT VALID preds_np
+    models['5_12'] = model
+    # preds_np[valid_users] = model.predict_proba(valid_x.astype('float32'))[:, 1]
+    # preds_np.loc[valid_users, quests] = model.predict_proba(valid_x)[:, 1]
+    v = model.predict_proba(valid_x)
+    v = v[:, 1]
+    v1 = v.reshape((len(quests),-1))
+    preds_np.loc[maska, quests] = v1 !!! ошибка осей!
+    return models, preds_np
 
 def preds(new_train, train, targets, param, param2):
     global quests
     ALL_USERS = new_train.index.unique()
     # print('В трайне', len(train.columns), 'колонок')
     print('В трайне', len(ALL_USERS), 'пользователей')
-    gkf = GroupKFold(n_splits=5)
-    oof = pd.DataFrame(data=np.zeros((len(ALL_USERS), 19)), index=ALL_USERS)
+    k_fold = KFold(n_splits=5)
+    preds_np = pd.DataFrame(data=np.zeros((len(ALL_USERS), 19)), index=ALL_USERS)
     models = {}
-    # ВОПРОСЫ
-    for q in quests:
-        print('### quest', q, '==> Fold ==>', end='')
-
-        train_q = feature_quest(new_train, train, q)
-        # train_q = new_train
-
-        # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
-        for i, (train_index, test_index) in enumerate(gkf.split(X=train_q, groups=train_q.index)):
-            print(' ', i + 1, end='')
-            models, oof = one_vopros(train_q, train_index, targets, test_index, models, oof, q, param, param2)
-        print()
+    # СОЗДАЕМ ТРАЙН ДЛЯ ВСЕХ ВОПРОСОВ
+    new_train['q'] = quests[0]
+    new_train.reset_index(inplace=True, names='session_id')
+    train_q = new_train.copy()
+    print('### quest', end='')
+    for q in quests[1:]:
+        print(q, ' ', end='')
+        new_train['q'] = q
+        train_q = pd.concat([train_q,new_train])
+    train_q.reset_index(inplace=True, drop = True)
+    # train_q = feature_quest(new_train, train, q)
+    # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
+    for i, (train_users, test_users) in enumerate(k_fold.split(ALL_USERS)):
+        train_users = ALL_USERS[train_users]
+        test_users = ALL_USERS[test_users]
+        print(' ', i + 1, end='')
+        models, preds_np = one_fold(train_q, train_users, targets, test_users, models, preds_np, param, param2)
+    print()
 
     # ВСТАВЬТЕ ИСТИННЫЕ МЕТКИ В ФРЕЙМ ДАННЫХ С 18 СТОЛБЦАМИ
-    true = oof.copy()
+    true = preds_np.copy()
     for k in quests:
         # GET TRUE LABELS
         tmp = targets.loc[targets.q == k].set_index('session').loc[ALL_USERS]
         true[k] = tmp.correct.values
-    return oof, true
+    return preds_np, true
 
-def otvet(oof, true, param, param2, quest, rezult):
+def otvet(preds_np, true, param, param2, quest, rezult):
     global quests
     #ВЫЧИСЛЕНИЕ ПОРОГА ДЛЯ КАЖДОГО ВОПРОСА ОТДЕЛЬНО
     scores = []; thresholds = []
@@ -234,7 +239,7 @@ def otvet(oof, true, param, param2, quest, rezult):
     #     best_threshold = 0
     #     for threshold in np.arange(-0.01, 1.01, 0.01):
     #         # print(f'{threshold:.02f}, ',end='')
-    #         preds = (oof[k].values > threshold).astype('int')
+    #         preds = (preds_np[k].values > threshold).astype('int')
     #         tru = true[k].values.reshape((-1))
     #         m = f1_score(tru, preds, average='macro')
     #         if m > best_score:
@@ -250,15 +255,15 @@ def otvet(oof, true, param, param2, quest, rezult):
     for k in quests:
         # Считаем F1 SCORE для каждого вопроса
         tru = true[k].values
-        y_pred = oof[k].values
+        y_pred = preds_np[k].values
         m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
         print(f'Q{k}: F1 =', m)
 
     # Считаем F1 SCORE для всех вопросов
     tru3 = true[quests]
     tru = tru3.values.reshape((-1))
-    oof3 = oof[quests]
-    y_pred = oof3.values.reshape((-1))
+    preds_np3 = preds_np[quests]
+    y_pred = preds_np3.values.reshape((-1))
     m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
     print('==> Для всех вопросов =', m)
 
@@ -269,7 +274,7 @@ def otvet(oof, true, param, param2, quest, rezult):
     # for k in quests:
     #     # Считаем F1 SCORE для каждого вопроса
     #     tru = true[k].values
-    #     y_pred = oof[k].values
+    #     y_pred = preds_np[k].values
     #     m = f1_score(tru, (y_pred > thresholds[k-quests[0]]).astype('int'), average='macro')
     #     print(f'Q{k}: F1 =', m)
 
@@ -314,23 +319,7 @@ def main():
                 12:[660, 7, 0.095],
                 13:[670, 11, 0.085]
               }     #1-й элемент списка n_estimators, 2-й max_depth,
-    # gb_param = {4: [160, 5, 0.005],
-    #             5: [660, 5, 0.01],
-    #             6: [140, 5, 0.005],
-    #             7: [180, 5, 0.005],
-    #             8: [220, 5, 0.02],
-    #             9: [200, 5, 0.005],
-    #             10:[740, 5, 0.02],
-    #             11:[850, 5, 0.01]
-    #           }     #1-й элемент списка n_estimators, 2-й max_depth,
 
-    rooms = {14: ['tunic.historicalsociety.closet_dirty', # 0.611685
-                  'tunic.historicalsociety.collection_flag', # 0.610912
-                  'tunic.library.frontdesk'], # 0.610788
-            }
-    text_fqids = {
-
-    }
     rezult = pd.DataFrame(columns=['param', 'param2', 'quest', 'rezultat'])
     train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_5_12.csv")
 
@@ -343,7 +332,6 @@ def main():
     tmp = tmp.groupby(['session_id'])['event_name'].count()
     tmp = tmp[tmp == 1].index
     train = train[train['session_id'].isin(tmp)]
-
     targets = deftarget()
     # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
     col = 'room_fqid' # перебор колонок для трайна

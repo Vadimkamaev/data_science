@@ -67,13 +67,59 @@ def read_csv_loc(file):
     return train
 
 def melk2():
-    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_13_22.csv")
+    train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_5_12.csv")
 
     # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
-    col = 'text_fqid' # перебор колонок для трайна
+    # col = 'text_fqid' # перебор колонок для трайна
+    # ls = train[col].unique() # список значений колонки
+    # for param in ls:
+    #     print(param)
+
+    col = 'event_name' # колонка
     ls = train[col].unique() # список значений колонки
-    for param in ls:
-        print(param)
+    df = train[train['event_name'] == 'checkpoint']
+    tmp = df.groupby(['session_id'])['event_name'].count()
+    tmp = tmp[tmp != 1].index
+    train = train[train['session_id'].isin(tmp)]
+
+    # for param in range(1,10,1):
+    #     # df = train[train['event_name'] == 'checkpoint']
+    #     # tmp = df.groupby(['session_id'])['event_name'].count()
+    #     rrr = (tmp == param).sum()
+    #
+    #     # rrr = df['session_id'].unique()
+    #     # print(col,'=', param)
+    #     print('param =', param)
+    #     print('кол =', rrr)
+
+    targets = pd.read_csv('C:\\kaggle\\ОбучИгра\\train_labels.csv')
+    targets['q'] = targets['session_id'].apply(lambda x: int(x.split('_')[-1][1:]))
+    targets['session'] = targets.session_id.apply(lambda x: int(x.split('_')[0]))
+
+    print('ВСЕ')
+    question_means = targets.groupby('q').correct.agg('mean')
+    porog = 0.62
+    df = pd.DataFrame({'veroiatnoct':question_means, 'preds': (question_means > porog).astype('int32'),
+                       'tochnost' : (question_means-porog).abs()})
+    print(df)
+
+    print('C checkpoint != 1')
+    targets = targets[targets['session'].isin(tmp)]
+    question_means = targets.groupby('q').correct.agg('mean')
+    porog = 0.62
+    df = pd.DataFrame({'veroiatnoct':question_means, 'preds': (question_means > porog).astype('int32'),
+                       'tochnost' : (question_means-porog).abs()})
+    print(df)
+
+
+
+    # for param in range(1,10):
+    #     print('param =', param)
+    #     tmp = (param == train.groupby(['session_id'])[col].agg('nunique'))
+    #     print(tmp.sum())
+
+
+
 
 melk2()
 
