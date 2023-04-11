@@ -16,30 +16,39 @@ def deftarget():
 
 def feature_engineer(train):
     # имена, используемых в модели, категориальных полей трайна
-    CATS = ['event_name', 'fqid', 'room_fqid', 'text_fqid', 'page']
-    # имена, используемых в модели, числовых полей трайна
-    # NUMS = ['delt_time', 'room_coor_x', 'room_coor_y', 'hover_duration']
-    NUMS = ['delt_time', 'hover_duration']
-    EV_NAME = ['observation_click', 'cutscene_click', 'notification_click', 'person_click',
-               'object_click', 'map_click', 'object_hover']
+    CATS = ['event_name', 'room_fqid', 'text_fqid', 'page']
+
+    EV_NAME1 = ['observation_click', 'cutscene_click', 'notification_click', 'person_click',
+               'object_click', 'object_hover']
+    EV_NAME2 = ['observation_click', 'cutscene_click', 'notification_click', 'person_click',
+                'object_click', 'map_click', 'object_hover']
     new_train = pd.DataFrame(index=train['session_id'].unique(), columns=[])
-    for c in EV_NAME:
-        new_train['l_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['index'].count()
-        new_train['t_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['delt_time'].sum()
-    train = train[train['name'] == 'basic']
-    new_train['finish'] = train.groupby(['session_id'])['elapsed_time'].last(1)  # ? надо ли?
-    new_train['len'] = train.groupby(['session_id'])['index'].count()
+
+    # train = train[train['name'] == 'basic']
+
+    # new_train['finish'] = train.groupby(['session_id'])['elapsed_time'].last(1)  # ? надо ли?
+    # new_train['len'] = train.groupby(['session_id'])['index'].count()
     for c in CATS:
         tmp = train.groupby(['session_id'])[c].agg('nunique')
         tmp.name = tmp.name + '_nunique'
         new_train = new_train.join(tmp)
-    for c in NUMS:
-        tmp = train.groupby(['session_id'])[c].agg('mean')
-        new_train = new_train.join(tmp)
-    for c in NUMS:
-        tmp = train.groupby(['session_id'])[c].agg('std')
-        tmp.name = tmp.name + '_std'
-        new_train = new_train.join(tmp)
+
+    tmp = train.groupby(['session_id'])['delt_time'].agg('mean')
+    new_train = new_train.join(tmp)
+
+    tmp = train.groupby(['session_id'])['delt_time'].agg('std')
+    tmp.name = tmp.name + '_std'
+    new_train = new_train.join(tmp)
+
+    tmp = train.groupby(['session_id'])['hover_duration'].agg('mean')
+    new_train = new_train.join(tmp)
+
+    for c in EV_NAME1:
+        new_train['l_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['index'].count()
+    for c in EV_NAME2:
+        new_train['t_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['delt_time'].sum()
+
+
     new_train = new_train.fillna(-1)
     return new_train
 
@@ -141,9 +150,8 @@ def feature_quest(new_train, train, q):
     return train_q
 
 
-
 def dop_feature(new_train, train, col, param):
-    new_train['l_'+col+' '+str(param)] = train[train[col]==param].groupby(['session_id'])['index'].count()
+    # new_train['l_'+col+' '+str(param)] = train[train[col]==param].groupby(['session_id'])['index'].count()
     new_train['t_' + col + ' ' + str(param)] = train[train[col] == param].groupby(['session_id'])['delt_time'].sum()
     return new_train
 
@@ -154,7 +162,7 @@ def dop_feature2(new_train, train, col, param, col2, param2):
         train[(train[col]==param)&(train[col2]==param2)].groupby(['session_id'])['delt_time'].sum()
     return new_train
 
-def one_fold(df, train_users, targets, test_users, models, preds_np, param, param2):
+def one_fold(df, train_users, targets, test_users, models, param, param2):
     global gb_param, quests
     # TRAIN DATA
     train_x = df[df['session_id'].isin(train_users)]
@@ -175,8 +183,8 @@ def one_fold(df, train_users, targets, test_users, models, preds_np, param, para
 
     # TRAIN MODEL
     model = CatBoostClassifier(
-        n_estimators = 280,#param, #param
-        learning_rate= 0.045,#param2,
+        n_estimators = 300,#900, #param
+        learning_rate= 0.05,
         depth = 3,
         cat_features = ['q'],
         ignored_features = ['session_id']
@@ -185,15 +193,13 @@ def one_fold(df, train_users, targets, test_users, models, preds_np, param, para
     Y = train_y['correct']
     model.fit(X, Y, verbose=False)
 
-    # SAVE MODEL, PREDICT VALID preds_np
+    # SAVE MODEL, PREDICT VALID preds
     models['5_12'] = model
-    # preds_np[valid_users] = model.predict_proba(valid_x.astype('float32'))[:, 1]
-    # preds_np.loc[valid_users, quests] = model.predict_proba(valid_x)[:, 1]
-    v = model.predict_proba(valid_x)
-    v = v[:, 1]
-    v1 = v.reshape((len(quests),-1))
-    preds_np.loc[maska, quests] = v1 !!! ошибка осей!
-    return models, preds_np
+    preds = model.predict_proba(valid_x)
+    preds = preds[:, 1]
+    preds = preds.reshape((len(quests),-1))
+    preds = preds.T
+    return models, preds
 
 def preds(new_train, train, targets, param, param2):
     global quests
@@ -201,7 +207,7 @@ def preds(new_train, train, targets, param, param2):
     # print('В трайне', len(train.columns), 'колонок')
     print('В трайне', len(ALL_USERS), 'пользователей')
     k_fold = KFold(n_splits=5)
-    preds_np = pd.DataFrame(data=np.zeros((len(ALL_USERS), 19)), index=ALL_USERS)
+    preds_np = pd.DataFrame(data=np.zeros((len(ALL_USERS), len(quests))), index=ALL_USERS, columns=quests)
     models = {}
     # СОЗДАЕМ ТРАЙН ДЛЯ ВСЕХ ВОПРОСОВ
     new_train['q'] = quests[0]
@@ -215,11 +221,14 @@ def preds(new_train, train, targets, param, param2):
     train_q.reset_index(inplace=True, drop = True)
     # train_q = feature_quest(new_train, train, q)
     # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
-    for i, (train_users, test_users) in enumerate(k_fold.split(ALL_USERS)):
+    print('')
+    print('k_fold ==>', end='')
+    for (train_users, test_users) in k_fold.split(ALL_USERS):
         train_users = ALL_USERS[train_users]
         test_users = ALL_USERS[test_users]
-        print(' ', i + 1, end='')
-        models, preds_np = one_fold(train_q, train_users, targets, test_users, models, preds_np, param, param2)
+        print(' .', end='')
+        models, preds = one_fold(train_q, train_users, targets, test_users, models, param, param2)
+        preds_np.loc[test_users] = preds
     print()
 
     # ВСТАВЬТЕ ИСТИННЫЕ МЕТКИ В ФРЕЙМ ДАННЫХ С 18 СТОЛБЦАМИ
@@ -231,7 +240,7 @@ def preds(new_train, train, targets, param, param2):
     return preds_np, true
 
 def otvet(preds_np, true, param, param2, quest, rezult):
-    global quests
+    global quests, group_quest
     #ВЫЧИСЛЕНИЕ ПОРОГА ДЛЯ КАЖДОГО ВОПРОСА ОТДЕЛЬНО
     scores = []; thresholds = []
     # for k in quests:
@@ -258,6 +267,14 @@ def otvet(preds_np, true, param, param2, quest, rezult):
         y_pred = preds_np[k].values
         m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
         print(f'Q{k}: F1 =', m)
+
+    print('Результат для групп вопросов с общим порогом:')
+    for gq in group_quest:
+        print('Группа вопросов:', gq)
+        tru = true[gq].values.reshape((-1))
+        y_pred = preds_np[gq].values.reshape((-1))
+        m = f1_score(tru, (y_pred > best_threshold).astype('int'), average='macro')
+        print('F1 =', m)
 
     # Считаем F1 SCORE для всех вопросов
     tru3 = true[quests]
@@ -307,18 +324,7 @@ def read_csv_loc(file):
 def main():
     global quests, gb_param
     pd.options.display.width = 0  # для печати
-    vse_quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]
-    gb_param = {4: [300, 5, 0.07],
-                5: [200, 3, 0.06],
-                6: [360, 3, 0.065],
-                7: [410, 5, 0.055],
-                8: [100, 4, 0.065],
-                9: [250, 5, 0.06],
-                10:[510, 5, 0.075],
-                11:[150, 5, 0.045],
-                12:[660, 7, 0.095],
-                13:[670, 11, 0.085]
-              }     #1-й элемент списка n_estimators, 2-й max_depth,
+    vse_quests = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
     rezult = pd.DataFrame(columns=['param', 'param2', 'quest', 'rezultat'])
     train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_5_12.csv")
@@ -334,47 +340,71 @@ def main():
     train = train[train['session_id'].isin(tmp)]
     targets = deftarget()
     # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
-    col = 'room_fqid' # перебор колонок для трайна
+    col = 'name' # перебор колонок для трайна
     ls = train[col].unique() # список значений колонки
 
     #второй столбец перебора для трайна
 
-    # for quest in vse_quests:
-    #     quests = [quest]
 
-    if True:
-        quests = vse_quests
-        quest = 0
-        param = 1
-        param2 = 0
+    quest = 0
+    param = 1
+    param2 = 0
 
-        # for param in ls:
-        for param in range(230, 290, 10):
-            maska = train[col] == param
-            col2 = 'level'
-            rrr = train[maska][col2].unique()
-            for param2 in range(15,55,5):
-                param2 = param2 / 1000
-                train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
-                train['delt_time'] = train['elapsed_time'].diff(1)
-                train['delt_time'].fillna(0, inplace=True)
-                train['delt_time'].clip(0, 103000, inplace=True)
-                new_train = feature_engineer(train)
+    # for param in ls:
+    # if param in EV_NAME2:
+    #     continue
+    for param in range(5, 100, 5):
+#     maska = train[col] == param
+#     col2 = 'level'
+#     rrr = train[maska][col2].unique()
+#     for param2 in range(20,55,5):
+#         param2 = param2 / 1000
+        train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
+        train['d_time'] = train['elapsed_time'].diff(1)
 
-                # new_train = dop_feature(new_train, train, col, param)
+        train['d_time'].fillna(0, inplace=True)
+        train['delt_time'] = train['d_time'].clip(0, 19000)
+        new_train = feature_engineer(train)
 
-                # new_train = dop_feature2(new_train, train, col, param, col2, param2)
-
-                oof, true = preds(new_train, train, targets, param, param2)
-                otvet(oof, true, param, param2, quest, rezult)
-                rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
-                print(rezult.head(22))
-                for q in rezult.quest.unique():
-                    print('вопрос =', q)
-                    print(rezult[rezult.quest==q].head(10))
+        # ДОБАВЛЯЕМ КВАНТИЛЬ
 
 
-quests = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.3)
+        qvant.name = 'qvant1_0_3'
+        new_train = new_train.join(qvant)
 
+        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.8)
+        qvant.name = 'qvant2_0_8'
+        new_train = new_train.join(qvant)
+
+        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.5)
+        qvant.name = 'qvant3_0_5'
+        new_train = new_train.join(qvant)
+
+        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.65)
+        qvant.name = 'qvant4_0_65'
+        new_train = new_train.join(qvant)
+
+        qvant = train.groupby(['session_id'])['d_time'].quantile(q=param/100)
+        qvant.name = 'qvant2'
+        new_train = new_train.join(qvant)
+
+
+        # ПРОВЕРКА НЕТ ЛИ ЛИШНИХ КОЛОНОК
+        # print('columns:', new_train.columns)
+        # new_train.drop(columns = param, inplace=True)
+
+        # new_train = dop_feature(new_train, train, col, param)
+
+        # new_train = dop_feature2(new_train, train, col, param, col2, param2)
+
+        oof, true = preds(new_train, train, targets, param, param2)
+        otvet(oof, true, param, param2, quest, rezult)
+        rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
+        print(rezult.head(30))
+
+
+quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]
+group_quest = [[4, 5, 6, 7, 8, 9, 10, 11]]
 if __name__ == "__main__":
     main()

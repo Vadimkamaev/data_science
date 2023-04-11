@@ -169,7 +169,7 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, param, para
 
     # TRAIN MODEL
     model = CatBoostClassifier(
-        n_estimators = 280,#param, #param
+        n_estimators = 280,#param
         learning_rate= 0.045,#param2,
         depth = 3
     )
@@ -208,8 +208,8 @@ def preds(new_train, train, targets, param, param2):
     for q in quests:
         print('### quest', q, '==> Fold ==>', end='')
 
-        train_q = feature_quest(new_train, train, q)
-        # train_q = new_train
+        # train_q = feature_quest(new_train, train, q)
+        train_q = new_train
 
         # ВЫЧИСЛИТЕ РЕЗУЛЬТАТ С 5-ГРУППОВЫМ K FOLD
         for i, (train_index, test_index) in enumerate(gkf.split(X=train_q, groups=train_q.index)):
@@ -303,16 +303,16 @@ def main():
     global quests, gb_param
     pd.options.display.width = 0  # для печати
     vse_quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]
-    gb_param = {4: [300, 5, 0.07],
-                5: [200, 3, 0.06],
-                6: [360, 3, 0.065],
-                7: [410, 5, 0.055],
-                8: [100, 4, 0.065],
-                9: [250, 5, 0.06],
-                10:[510, 5, 0.075],
-                11:[150, 5, 0.045],
-                12:[660, 7, 0.095],
-                13:[670, 11, 0.085]
+    gb_param = {4: [550, 5, 0.045],
+                5: [450, 5, 0.045],
+                6: [650, 3, 0.045],
+                7: [850, 4, 0.045],
+                8: [350, 3, 0.045],
+                9: [550, 5, 0.045],
+                10:[750, 5, 0.045],
+                11:[250, 4, 0.045],
+                12:[660, 7, 0.045],
+                13:[670, 11, 0.045]
               }     #1-й элемент списка n_estimators, 2-й max_depth,
     # gb_param = {4: [160, 5, 0.005],
     #             5: [660, 5, 0.01],
@@ -361,32 +361,32 @@ def main():
         param2 = 0
 
         # for param in ls:
-        for param in range(230, 290, 10):
-            maska = train[col] == param
-            col2 = 'level'
-            rrr = train[maska][col2].unique()
-            for param2 in range(15,55,5):
-                param2 = param2 / 1000
-                train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
-                train['delt_time'] = train['elapsed_time'].diff(1)
-                train['delt_time'].fillna(0, inplace=True)
-                train['delt_time'].clip(0, 103000, inplace=True)
-                new_train = feature_engineer(train)
+        # for param in range(150, 1000, 100):
+        #     maska = train[col] == param
+        #     col2 = 'level'
+        #     rrr = train[maska][col2].unique()
+            # for param2 in range(3,6,1):
+            #     param2 = param2 / 1000
+        train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
+        train['delt_time'] = train['elapsed_time'].diff(1)
+        train['delt_time'].fillna(0, inplace=True)
+        train['delt_time'].clip(0, 103000, inplace=True)
+        new_train = feature_engineer(train)
 
-                # new_train = dop_feature(new_train, train, col, param)
+        # new_train = dop_feature(new_train, train, col, param)
 
-                # new_train = dop_feature2(new_train, train, col, param, col2, param2)
+        # new_train = dop_feature2(new_train, train, col, param, col2, param2)
 
-                oof, true = preds(new_train, train, targets, param, param2)
-                otvet(oof, true, param, param2, quest, rezult)
-                rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
-                print(rezult.head(22))
-                for q in rezult.quest.unique():
-                    print('вопрос =', q)
-                    print(rezult[rezult.quest==q].head(10))
+        oof, true = preds(new_train, train, targets, param, param2)
+        otvet(oof, true, param, param2, quest, rezult)
+        rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
+        print(rezult.head(22))
+        for q in rezult.quest.unique():
+            print('вопрос =', q)
+            print(rezult[rezult.quest==q].head(10))
 
 
-quests = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]
 
 if __name__ == "__main__":
     main()
