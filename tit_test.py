@@ -74,8 +74,6 @@ class Canaliz:
         rez = rez.sort_values(by='Survived')
         print(rez)
 
-
-
     # средняя цена билета от класса
     def cena_bileta(self, df):
         mas = ((df['SibSp'] + df['Parch']) == 0)

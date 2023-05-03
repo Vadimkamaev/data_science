@@ -169,9 +169,10 @@ def one_vopros(df, train_index, targets, test_index, models, oof, t, param, para
 
     # TRAIN MODEL
     model = CatBoostClassifier(
-        n_estimators = 280,#param
+        n_estimators = 350,#param
         learning_rate= 0.045,#param2,
-        depth = 3
+        depth = 3,
+        l2_leaf_reg = 1.4, #param
     )
 
     #     xgb.XGBClassifier(
@@ -361,12 +362,12 @@ def main():
         param2 = 0
 
         # for param in ls:
-        # for param in range(150, 1000, 100):
+    for param in range(2, 3, 1):
         #     maska = train[col] == param
         #     col2 = 'level'
         #     rrr = train[maska][col2].unique()
             # for param2 in range(3,6,1):
-            #     param2 = param2 / 1000
+        param = param / 10
         train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
         train['delt_time'] = train['elapsed_time'].diff(1)
         train['delt_time'].fillna(0, inplace=True)

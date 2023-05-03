@@ -48,116 +48,98 @@ def feature_engineer(train):
     for c in EV_NAME2:
         new_train['t_ev_name_' + c] = train[train['event_name'] == c].groupby(['session_id'])['delt_time'].sum()
 
+    # ДОБАВЛЯЕМ КВАНТИЛИ
+    qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.3)
+    qvant.name = 'qvant1_0_3'
+    new_train = new_train.join(qvant)
 
-    new_train = new_train.fillna(-1)
+    qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.8)
+    qvant.name = 'qvant2_0_8'
+    new_train = new_train.join(qvant)
+
+    qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.5)
+    qvant.name = 'qvant3_0_5'
+    new_train = new_train.join(qvant)
+
+    qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.65)
+    qvant.name = 'qvant4_0_65'
+    new_train = new_train.join(qvant)
+
+    # квантиль
+    new_train['q_person_click'] = \
+        train[train['event_name'] == 'person_click'].groupby(['session_id'])['d_time'].quantile(q=0.3)
+
+    # комната / уровень
+    new_train['t_historicalsociety.frontdesk_12'] = \
+        train[(train['room_fqid']=='tunic.historicalsociety.frontdesk')&(train['level']==12)].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.stacks_12'] = \
+        train[(train['room_fqid']=='tunic.historicalsociety.stacks')&(train['level']==12)].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.stacks_11'] = \
+        train[(train['room_fqid'] == 'tunic.historicalsociety.stacks') & (train['level'] == 11)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    new_train['t_humanecology.frontdesk_11'] = \
+        train[(train['room_fqid'] == 'tunic.humanecology.frontdesk') & (train['level'] == 11)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.frontdesk_7'] = \
+        train[(train['room_fqid']=='tunic.historicalsociety.frontdesk')&(train['level']==7)].groupby(['session_id'])['delt_time'].sum()
+
+    # в этой строке ухудшение результата
+    new_train['t_kohlcenter.halloffame_12'] = \
+        train[(train['room_fqid'] == 'tunic.kohlcenter.halloffame') & (train['level'] == 12)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.entry_6'] = \
+        train[(train['room_fqid'] == 'tunic.historicalsociety.entry') & (train['level'] == 6)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.stacks_7'] = \
+        train[(train['room_fqid'] == 'tunic.historicalsociety.stacks') & (train['level'] == 7)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    new_train['t_historicalsociety.closet_dirty_7'] = \
+        train[(train['room_fqid'] == 'tunic.historicalsociety.closet_dirty') & (train['level'] == 7)].groupby(
+            ['session_id'])['delt_time'].sum()
+
+    # fqid
+    new_train['t_fqid_logbook.page.bingo'] = \
+        train[train['fqid'] == 'logbook.page.bingo'].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_fqid_tobasement'] = \
+        train[train['fqid'] == 'tobasement'].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_fqid_wellsbadge'] = \
+        train[train['fqid'] == 'wellsbadge'].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_fqid_boss'] = \
+        train[train['fqid'] == 'boss'].groupby(['session_id'])['delt_time'].sum()
+
+    new_train['t_fqid_businesscards.card_bingo.bingo'] = \
+        train[train['fqid'] == 'businesscards.card_bingo.bingo'].groupby(['session_id'])['delt_time'].sum()
+    # 0.6473945817868101 далее хуже
+    new_train['t_fqid_reader'] = \
+        train[train['fqid'] == 'reader'].groupby(['session_id'])['delt_time'].sum() # 0.647236
+
+    new_train['t_fqid_tocloset_dirty'] = \
+        train[train['fqid'] == 'tocloset_dirty'].groupby(['session_id'])['delt_time'].sum() # 0.647350406310234
+
+    new_train['t_fqid_tunic.capitol_0'] = \
+        train[train['fqid'] == 'tunic.capitol_0'].groupby(['session_id'])['delt_time'].sum()  # 0.647534
+
     return new_train
 
-def feature_quest(new_train, train, q):
-    train_q = new_train.copy()
-    # rooms = {4: [], # 0.645516
-    #          5: ['tunic.historicalsociety.frontdesk'],  # 0.610148
-    #          6: ['tunic.drycleaner.frontdesk'],  # 0.614074
-    #          7: ['tunic.historicalsociety.frontdesk'], # 0.593498
-    #          8: [], # 0.559517
-    #          9: ['tunic.historicalsociety.entry'], #0.607111
-    #          10:['tunic.library.frontdesk', # 0.571301
-    #              'tunic.historicalsociety.frontdesk'], # 0.5729109   ХОРОШО
-    #          11:[] # 0.596917
-    #         }
-    # for room in rooms[q]:
-    #     train_q['l_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['index'].count()
-    #     train_q['t_room_' + room] = train[train['room_fqid'] == room].groupby(['session_id'])['delt_time'].sum()
-    #
-    # levels ={4: [12], #0.6464931109093858
-    #          5: [], #
-    #          6: [9], # 0.6163670083090893
-    #          7: [11, 8], #0.5955192949527838
-    #          8: [12], # 0.5589346712660985
-    #          9: [9], # 0.6059824858104659
-    #          10:[7], # 0.5790869708333823
-    #          11:[7]  # 0.5948890284013294
-    #          }
-    # for level in levels[q]:
-    #     train_q['l_level_' + str(level)] = train[train['level'] == level].groupby(['session_id'])['index'].count()
-    #     train_q['t_level_' + str(level)] = train[train['level'] == level].groupby(['session_id'])['delt_time'].sum()
-    #
-    text_fqids = {
-        4: ['tunic.historicalsociety.frontdesk.archivist.newspaper',
-            'tunic.humanecology.frontdesk.worker.intro',
-            'tunic.library.frontdesk.worker.wells', # 0.6666325627660743
-            'tunic.library.frontdesk.worker.hello'], # 0.6678694174620372
-        5: ['tunic.humanecology.frontdesk.worker.intro',
-            'tunic.historicalsociety.closet_dirty.gramps.helpclean',
-            'tunic.historicalsociety.closet_dirty.gramps.news'],     # 0.6225926406619734
-        6: ['tunic.humanecology.frontdesk.worker.intro',
-            'tunic.historicalsociety.frontdesk.archivist.foundtheodora',
-            'tunic.historicalsociety.closet_dirty.trigger_coffee', # 0.6298310348680769
-            'tunic.historicalsociety.closet_dirty.gramps.archivist'], # 0.6320710506038789
-        7: ['tunic.historicalsociety.closet_dirty.door_block_talk',
-            'tunic.drycleaner.frontdesk.worker.hub',
-            'tunic.historicalsociety.closet_dirty.trigger_coffee', # 0.6133391068274732
-            'tunic.library.frontdesk.block_badge_2'],              # 0.6137352401264455
-        8: ['tunic.humanecology.frontdesk.worker.intro',
-            'tunic.historicalsociety.frontdesk.magnify', # 0.565820361974706
-            'tunic.historicalsociety.closet_dirty.trigger_coffee'], # 0.5666316505932836
-        9: ['tunic.historicalsociety.frontdesk.archivist.hello',
-            'tunic.library.frontdesk.worker.wells', # 0.6123618449755199
-            'tunic.historicalsociety.frontdesk.archivist.foundtheodora'], # 0.6165404455938354
-        10: ['tunic.library.frontdesk.worker.wells',
-            'tunic.historicalsociety.frontdesk.archivist.have_glass_recap',
-             'tunic.historicalsociety.closet_dirty.gramps.news'], # 0.5829876555092278
-        11: ['tunic.historicalsociety.frontdesk.archivist.newspaper_recap',
-             'tunic.historicalsociety.closet_dirty.gramps.archivist'] # 0.5990726954508437
-    }
-    for text_fqid in text_fqids[q]:
-        maska = train['text_fqid'] == text_fqid
-        train_q['l_text_fqid_' + text_fqid] = train[maska].groupby(['session_id'])['index'].count()
-        train_q['t_text_fqid_' + text_fqid] = train[maska].groupby(['session_id'])['delt_time'].sum()
-        # train_q['x_' + text_fqid] = train[maska].groupby(['session_id'])['room_coor_x'].mean()
-        # train_q['y_' + text_fqid] = train[maska].groupby(['session_id'])['room_coor_y'].mean()
-        # maska = maska & (train['name'] == 'basic')
-        # train_q['l1_' + text_fqid] = train[maska].groupby(['session_id'])['index'].count()
-        # train_q['t1_' + text_fqid] = train[maska].groupby(['session_id'])['delt_time'].sum()
-
-    room_lvls = {
-         4: [['tunic.historicalsociety.frontdesk',12], # 0.6597916057422418
-             ['tunic.historicalsociety.stacks',7]], # 0.6601234742102491
-         5: [['tunic.historicalsociety.stacks',12]],  # 0.6224656333644798
-             # ['',]],
-         6: [['tunic.drycleaner.frontdesk',8],  # 0.6213566138088428
-             ['tunic.library.microfiche',9]], # 0.6230008195007571
-         7: [['tunic.drycleaner.frontdesk',8], # 0.5996180477326464
-             ['tunic.library.frontdesk',10]], # 0.602582704782065
-         8: [['tunic.kohlcenter.halloffame', 11], # 0.5643078050912897
-             ['tunic.kohlcenter.halloffame',6]], # 0.5649049719407627
-         9: [['tunic.capitol_1.hall', 12], # 0.6126018162800113
-             ['tunic.historicalsociety.collection',12]],
-         10:[['tunic.kohlcenter.halloffame',5], # 0.5736735291344757
-             ['tunic.humanecology.frontdesk',7]], # 0.580172783522924
-         11:[['tunic.drycleaner.frontdesk',9], #0.5982855685463792
-             ['tunic.historicalsociety.collection',6]] # 0.5985825159801804
-        }
-    for rl in room_lvls[q]:
-        nam = rl[0]+str(rl[1])
-        maska = (train['room_fqid'] == rl[0])&(train['level'] == rl[1])
-        train_q['l_' + nam] = train[maska].groupby(['session_id'])['index'].count()
-        train_q['t_' + nam] = train[maska].groupby(['session_id'])['delt_time'].sum()
-
-        # train_q['hd_' + nam] = train[maska].groupby(['session_id'])['hover_duration'].sum()
-
-        # train_q['x_' + nam] = train[maska].groupby(['session_id'])['room_coor_x'].mean()
-        # train_q['y_' + nam] = train[maska].groupby(['session_id'])['room_coor_y'].mean()
-    return train_q
-
-
 def dop_feature(new_train, train, col, param):
-    # new_train['l_'+col+' '+str(param)] = train[train[col]==param].groupby(['session_id'])['index'].count()
+    #new_train['l_'+col+' '+str(param)] = train[train[col]==param].groupby(['session_id'])['index'].count()
     new_train['t_' + col + ' ' + str(param)] = train[train[col] == param].groupby(['session_id'])['delt_time'].sum()
+    # new_train['q_' + col + ' ' + str(param)] = train[train[col] == param].groupby(['session_id'])['d_time'].quantile(q=0.3)
     return new_train
 
 def dop_feature2(new_train, train, col, param, col2, param2):
-    new_train['l_'+str(param)+str(param2)] = \
-        train[(train[col]==param)&(train[col2]==param2)].groupby(['session_id'])['index'].count()
+    # new_train['l_'+str(param)+str(param2)] = \
+    #     train[(train[col]==param)&(train[col2]==param2)].groupby(['session_id'])['index'].count()
     new_train['t_'+str(param)+str(param2)] = \
         train[(train[col]==param)&(train[col2]==param2)].groupby(['session_id'])['delt_time'].sum()
     return new_train
@@ -340,68 +322,50 @@ def main():
     train = train[train['session_id'].isin(tmp)]
     targets = deftarget()
     # ТЕСТИРУЕМЫЕ ПАРАМЕТРЫ
-    col = 'name' # перебор колонок для трайна
+    col = 'fqid' # перебор колонок для трайна
     ls = train[col].unique() # список значений колонки
 
+    # СПИСОК СЛОВ РАЗДЕЛЕННЫХ ТОЧКОЙ В КОЛОНКЕ
+    # ss = []
+    # for param in ls:
+    #     if isinstance(param, str):
+    #         ss += param.split('.')
+    # ss = set(ss)
+
+
     #второй столбец перебора для трайна
-
-
     quest = 0
     param = 1
     param2 = 0
 
     # for param in ls:
-    # if param in EV_NAME2:
-    #     continue
-    for param in range(5, 100, 5):
-#     maska = train[col] == param
-#     col2 = 'level'
-#     rrr = train[maska][col2].unique()
-#     for param2 in range(20,55,5):
-#         param2 = param2 / 1000
-        train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
-        train['d_time'] = train['elapsed_time'].diff(1)
+    # # # if param in EV_NAME2:
+    # # #     continue
+    # # # for param in range(3, 4, 1):
+    #     maska = train[col] == param
+    #     col2 = 'level'
+    #     rrr = train[maska][col2].unique()
+    #     for param2 in rrr:
+            #  param2 = param2 / 1000
+    train.sort_values(by=['session_id', 'elapsed_time'], inplace=True)
+    train['d_time'] = train['elapsed_time'].diff(1)
 
-        train['d_time'].fillna(0, inplace=True)
-        train['delt_time'] = train['d_time'].clip(0, 19000)
-        new_train = feature_engineer(train)
+    train['d_time'].fillna(0, inplace=True)
+    train['delt_time'] = train['d_time'].clip(0, 19000)
+    new_train = feature_engineer(train)
 
-        # ДОБАВЛЯЕМ КВАНТИЛЬ
+    # ПРОВЕРКА НЕТ ЛИ ЛИШНИХ КОЛОНОК
+    # print('columns:', new_train.columns)
+    # new_train.drop(columns = param, inplace=True)
 
+    new_train = dop_feature(new_train, train, col, param)
 
-        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.3)
-        qvant.name = 'qvant1_0_3'
-        new_train = new_train.join(qvant)
+    # new_train = dop_feature2(new_train, train, col, param, col2, param2)
 
-        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.8)
-        qvant.name = 'qvant2_0_8'
-        new_train = new_train.join(qvant)
-
-        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.5)
-        qvant.name = 'qvant3_0_5'
-        new_train = new_train.join(qvant)
-
-        qvant = train.groupby(['session_id'])['d_time'].quantile(q=0.65)
-        qvant.name = 'qvant4_0_65'
-        new_train = new_train.join(qvant)
-
-        qvant = train.groupby(['session_id'])['d_time'].quantile(q=param/100)
-        qvant.name = 'qvant2'
-        new_train = new_train.join(qvant)
-
-
-        # ПРОВЕРКА НЕТ ЛИ ЛИШНИХ КОЛОНОК
-        # print('columns:', new_train.columns)
-        # new_train.drop(columns = param, inplace=True)
-
-        # new_train = dop_feature(new_train, train, col, param)
-
-        # new_train = dop_feature2(new_train, train, col, param, col2, param2)
-
-        oof, true = preds(new_train, train, targets, param, param2)
-        otvet(oof, true, param, param2, quest, rezult)
-        rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
-        print(rezult.head(30))
+    oof, true = preds(new_train, train, targets, param, param2)
+    otvet(oof, true, param, param2, quest, rezult)
+    rezult.sort_values(by = 'rezultat', inplace=True, ascending=False)
+    print(rezult.head(30))
 
 
 quests = [4, 5, 6, 7, 8, 9, 10, 11]#, 12, 13]

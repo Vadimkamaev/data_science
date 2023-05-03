@@ -60,7 +60,7 @@ dtypes = {"session_id": 'int64',
           "level_group": 'category'
           }
 use_col = ['session_id', 'index', 'elapsed_time', 'event_name', 'name', 'level', 'page',
-           'room_coor_x', 'room_coor_y', 'hover_duration', 'fqid', 'room_fqid', 'text_fqid', 'level_group']
+           'room_coor_x', 'room_coor_y', 'hover_duration', 'text', 'fqid', 'room_fqid', 'text_fqid', 'level_group']
 
 
 train = pd.read_csv("C:\\kaggle\\ОбучИгра\\train.csv", dtype=dtypes, usecols=use_col)
@@ -72,13 +72,13 @@ train = pd.read_csv("C:\\kaggle\\ОбучИгра\\train.csv", dtype=dtypes, use
 # train = pd.read_csv("C:\\kaggle\\ОбучИгра\\train_sokr.csv")
 
 df = train[train['level_group'] == '0-4']
-df.to_csv("C:\\kaggle\\ОбучИгра\\train_0_4.csv", index=False)
+df.to_csv("C:\\kaggle\\ОбучИгра\\train_0_4t.csv", index=False)
 
 df = train[train['level_group'] == '5-12']
-df.to_csv("C:\\kaggle\\ОбучИгра\\train_5_12.csv", index=False)
+df.to_csv("C:\\kaggle\\ОбучИгра\\train_5_12t.csv", index=False)
 
 df = train[train['level_group'] == '13-22']
-df.to_csv("C:\\kaggle\\ОбучИгра\\train_13_22.csv", index=False)
+df.to_csv("C:\\kaggle\\ОбучИгра\\train_13_22t.csv", index=False)
 
 
 # ['session_id' - 11779 nunique, 'index' от 0 до 20473 - 20348 nunique,

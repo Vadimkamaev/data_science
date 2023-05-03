@@ -153,7 +153,7 @@ def otvet(oof, true, param, param2, rezult):
     # for k in quests:
     #     best_score = 0
     #     best_threshold = 0
-    #     for threshold in np.arange(-0.01, 1.01, 0.01):
+    #     for threshold in np.arange(0.4, 0.9, 0.01):
     #         # print(f'{threshold:.02f}, ',end='')
     #         preds = (oof[k].values > threshold).astype('int')
     #         tru = true[k].values.reshape((-1))

@@ -246,10 +246,13 @@ if __name__ == "__main__":
     #okno.csv("C:\\kaggle\\белки\\supertext.csv")
     #okno.csv("C:\\kaggle\\ОбучИгра\\train.csv")
 
-    train = pd.read_csv("C:\\kaggle\\ОбучИгра\\train_0_4.csv")
+    feature_df = pd.read_csv("C:\\kaggle\\ОбучИгра\\feature1.csv")
     # missed_columns = ["fullscreen", "hq", "music", "page", "hover_duration", "text"]
     # train = train.drop(missed_columns, axis=1)
-    okno.vewdf(train)
+    t1 = feature_df[feature_df['quest'] == 1]
+    t2 = feature_df[feature_df['quest'] == 2]
+    t3 = feature_df[feature_df['quest'] == 3]
+    okno.vewdf(t1)
 
 
 
