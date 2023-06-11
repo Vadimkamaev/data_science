@@ -227,6 +227,8 @@ def main_ml():
     best_thresholds = [0.6, 0.85, 0.80]
     best_thresholds += [0.6, 0.55, 0.65, 0.65, 0.55, 0.65, 0.55, 0.55, 0.65, 0.4]
     best_thresholds += [0.6, 0.5, 0.6, 0.6, 0.7]
+    best_thresholds += [0.55, 0.5, 0.6, 0.6, 0.7]
+
     # l_quest = [1, 2, 3]
     # l_quest = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     l_quest = [14, 15, 16, 17, 18]
@@ -253,6 +255,29 @@ def main_ml():
         feature_df.to_csv("C:\\kaggle\\ОбучИгра\\feature7.csv", index=False)
 
     for k in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]:#range(5,14,):
+
+    # if not ('kach1' in col):
+    #     feature_df['kach1'] = 0
+        ###### feature_df['rez'] = 0
+    # for quest in l_quest: # цикл по вопросам
+    #     b_thresholds = 0
+    #     kol_stuk = 0
+    #     maska = feature_df['quest'] == quest
+    #     for i, row_f in feature_df[maska].iterrows(): # цикл по строкам feature_df относящимся к вопросу
+    #         print('i=', i, 'kol_col=', row_f['kol_col'], 'col1=', row_f['col1'], row_f['val1'])
+    #         new_train = pd.DataFrame(index=train['session_id'].unique(), columns=[])
+    #         feature_engineer(row_f) # формируем трайн из 2 колонок - из одной строки датафрейма feature_df
+    #         preds() # предсказание / модель
+    #         m = otvet()
+    #         feature_df.loc[i,'kach'] = m
+    #         feature_df.loc[i, 'kach1'] = m
+    #     feature_df.sort_values(by=['quest','kach'], ascending=False, inplace=True,)
+    #     old_max = feature_df[maska]['kach'].max()
+    #     feature_df.loc[maska & (feature_df['kach']==old_max), 'rez'] = 1
+    #     print(feature_df[feature_df['quest']==quest].head(50))
+    #     feature_df.to_csv("C:\\kaggle\\ОбучИгра\\feature9.csv", index=False)
+
+    # for k in []:#range(5,14,):
         kach = f'kach{k}'
         # if kach in col:
         #     continue
@@ -282,6 +307,10 @@ def main_ml():
 
 # 1-Я СОРТИРОВКА СТОЛБЦОВ ПО КАЧЕСТВУ
 feature_df = pd.read_csv("C:\\kaggle\\ОбучИгра\\feature6.csv")
+# feature_df.to_csv("C:\\kaggle\\ОбучИгра\\feature9.csv", index=False)
+
+# 1-Я СОРТИРОВКА СТОЛБЦОВ ПО КАЧЕСТВУ
+feature_df = pd.read_csv("C:\\kaggle\\ОбучИгра\\feature8.csv")
 # train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_0_4t.csv")
 train = read_csv_loc("C:\\kaggle\\ОбучИгра\\train_13_22t.csv")
 deftarget()

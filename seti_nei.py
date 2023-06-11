@@ -1,4 +1,7 @@
 import torch
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.rcParams['figure.figsize'] = (13.0, 5.0)
 
 # создаем набор случайных чисел в интервале от -10 до 10,
 # rand - Возвращает тензор, заполненный случайными числами из равномерного распределения на интервале[0, 1)[ 0 ,1 )
@@ -63,7 +66,34 @@ sine_net = SineNet(50) # sine_net - нейронная сеть - объект �
 # sine_net.parameters() - веса нейронной сети для оптимизации, lr=0.01 - шаг градиентного спуска
 optimizer = torch.optim.Adam(sine_net.parameters(), lr=0.01)
 
+# предсказание + рисование
+def predict(net, x, y):
+    # предсказание
+    y_pred = net.forward(x)
+    # рисование
+    plt.plot(x.numpy(), y.numpy(), 'o', label='Groud truth')
+    plt.plot(x.numpy(), y_pred.data.numpy(), 'o', c='r', label='Prediction');
+    plt.legend(loc='upper left')
+    plt.xlabel('$x$')
+    plt.ylabel('$y$')
+    plt.show()
+#    input()
+
 # функция потерь - Loss function
 def loss(pred, target):
     squares = (pred - target) ** 2
     return squares.mean()
+
+# процесс обучения
+# цикл по эпохам (эпоха - шаг градиентного спуска)
+for epoch_index in range(2000):
+    optimizer.zero_grad()
+
+    y_pred = sine_net.forward(x_train)
+    loss_val = loss(y_pred, y_train)
+
+    loss_val.backward()
+
+    optimizer.step()
+
+predict(sine_net, x_validation, y_validation)
